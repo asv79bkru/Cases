@@ -7,7 +7,7 @@
 
 ```
 CasesBot/
-├── bin/                # CLI-скрипты (индексация каталога, консольные команды)
+├── bin/                # CLI-скрипты: index.php, poll.php (VK Teams), presentations-list.php
 ├── config/             # Config, справочник тегов (TagTaxonomy), .env
 ├── public/              # Точка входа для вебхука VK Teams
 ├── python/              # SlideTextExtractor / SlideCloner (python-pptx, lxml) — вызываются из PHP как подпроцесс
@@ -16,11 +16,11 @@ CasesBot/
 │   ├── Catalog/         # CaseItem, CatalogRepository, TagTaxonomy, Indexer
 │   ├── Query/           # QueryParser, Matcher
 │   ├── Presentation/    # SlideTextExtractor, SlideCloner, PresentationBuilder (PHP-обёртки)
-│   ├── Storage/         # GoogleDriveClient
+│   ├── Storage/         # LocalPresentationsClient (временно вместо Google Drive)
 │   └── Config.php
 ├── storage/
 │   ├── catalog/         # Каталог кейсов: catalog.sqlite + schema.sql (см. ниже)
-│   ├── incoming/        # Скачанные из Google Drive презентации
+│   ├── incoming/        # Резерв на будущее (если источник вернётся на скачивание, напр. Google Drive)
 │   ├── output/          # Собранные pptx перед отправкой в чат
 │   └── logs/            # Журнал запросов (P1)
 ├── tests/
