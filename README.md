@@ -9,6 +9,7 @@
 CasesBot/
 ├── bin/                # CLI-скрипты: index.php, poll.php (VK Teams), presentations-list.php
 ├── config/             # Config, справочник тегов (TagTaxonomy), .env
+├── presentations/       # Исходные .pptx (кладутся через git — источник для LocalPresentationsClient)
 ├── public/              # Точка входа для вебхука VK Teams
 ├── python/              # SlideTextExtractor / SlideCloner (python-pptx, lxml) — вызываются из PHP как подпроцесс
 ├── src/

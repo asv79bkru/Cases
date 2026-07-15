@@ -6,8 +6,8 @@ declare(strict_types=1);
  * Конфигурация приложения (см. класс Config, §6.2 ТЗ):
  * пути к рабочим папкам, токены VK Teams, путь к справочнику тегов.
  *
- * Источник презентаций временно — локальная папка на сервере (не Google Drive,
- * см. LocalPresentationsClient); интеграция с Google Drive API отложена.
+ * Источник презентаций временно — папка presentations/ внутри репозитория (не Google Drive,
+ * см. LocalPresentationsClient): файлы кладутся через git, интеграция с Google Drive API отложена.
  */
 
 // getenv() работает и с .env, подгруженным вручную в bin/poll.php (putenv()),
@@ -20,7 +20,7 @@ return [
         'api_url' => $env('VK_TEAMS_API_URL'),
     ],
     'presentations' => [
-        'folder_path' => $env('PRESENTATIONS_FOLDER_PATH'),
+        'folder_path' => $env('PRESENTATIONS_FOLDER_PATH', __DIR__ . '/../presentations'),
     ],
     'catalog' => [
         'storage_path' => $env('CATALOG_STORAGE_PATH', __DIR__ . '/../storage/catalog/catalog.sqlite'),

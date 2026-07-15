@@ -1,0 +1,2 @@
+*.pptx binary -diff -merge
+*.ppt binary -diff -merge
