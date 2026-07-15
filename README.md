@@ -7,7 +7,7 @@
 
 ```
 CasesBot/
-├── bin/                # CLI-скрипты: index.php, poll.php (VK Teams), gdrive-list.php (проверка Google Drive)
+├── bin/                # CLI-скрипты (индексация каталога, консольные команды)
 ├── config/             # Config, справочник тегов (TagTaxonomy), .env
 ├── public/              # Точка входа для вебхука VK Teams
 ├── python/              # SlideTextExtractor / SlideCloner (python-pptx, lxml) — вызываются из PHP как подпроцесс

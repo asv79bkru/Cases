@@ -1,6 +1,5 @@
 /vendor/
 /.env
-/config/google-service-account*.json
 
 /storage/incoming/*
 /storage/output/*
