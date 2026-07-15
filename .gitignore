@@ -1,0 +1,11 @@
+/vendor/
+/.env
+
+/storage/incoming/*
+/storage/output/*
+/storage/logs/*
+/storage/catalog/*.sqlite
+!/storage/**/.gitkeep
+
+.DS_Store
+Thumbs.db

@@ -1,0 +1,21 @@
+{
+    "name": "casesbot/case-presentation-bot",
+    "description": "Бот-сборщик кейс-презентаций для отдела продаж (VK Teams + PHP-монолит)",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.1",
+        "ext-zip": "*",
+        "ext-dom": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "CasesBot\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CasesBot\\Tests\\": "tests/"
+        }
+    }
+}
