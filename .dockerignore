@@ -1,0 +1,10 @@
+.git
+.env
+vendor/
+storage/incoming/*
+storage/output/*
+storage/logs/*
+!storage/**/.gitkeep
+tests/
+docs/
+*.md
