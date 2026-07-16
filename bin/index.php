@@ -39,7 +39,8 @@ $presentations = new LocalPresentationsClient($config['presentations']['folder_p
 $slideTextExtractor = new SlideTextExtractor(
     $config['python']['bin'],
     $config['python']['slide_text_extractor'],
-    $config['case_marker']
+    $config['case_marker'],
+    $config['catalog']['images_path']
 );
 $tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
 $catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
@@ -103,13 +104,15 @@ $indexer->run(static function (string $fileName, array $slide, array $suggested)
 
 fwrite(STDOUT, "\nИндексация завершена. Итого в каталоге:\n");
 foreach ($catalog->all() as $row) {
+    $imagesCount = $row['images'] !== null ? count(explode(', ', $row['images'])) : 0;
     printf(
-        "#%d %s (слайд %d): %s [%s]%s\n",
+        "#%d %s (слайд %d): %s [%s]%s, картинок: %d\n",
         $row['id'],
         $row['source_file_name'],
         $row['slide_number'],
         $row['title'] ?? '(без заголовка)',
         $row['tags'] ?? '',
-        $row['site_url'] !== null ? " -> {$row['site_url']}" : ''
+        $row['site_url'] !== null ? " -> {$row['site_url']}" : '',
+        $imagesCount
     );
 }

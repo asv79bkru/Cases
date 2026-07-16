@@ -5,6 +5,7 @@
 /storage/output/*
 /storage/logs/*
 /storage/catalog/*.sqlite
+/storage/catalog/images/*
 !/storage/**/.gitkeep
 
 .DS_Store

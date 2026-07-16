@@ -24,6 +24,7 @@ return [
     ],
     'catalog' => [
         'storage_path' => $env('CATALOG_STORAGE_PATH', __DIR__ . '/../storage/catalog/catalog.sqlite'),
+        'images_path' => $env('CATALOG_IMAGES_PATH', __DIR__ . '/../storage/catalog/images'),
     ],
     'tags_taxonomy_path' => __DIR__ . '/tags.php',
     'python' => [

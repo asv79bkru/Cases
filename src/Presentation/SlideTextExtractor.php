@@ -6,8 +6,9 @@ namespace CasesBot\Presentation;
 
 /**
  * Тонкая обёртка над Python-скриптом python/slide_text_extractor.py (python-pptx):
- * читает текст слайда (заголовок, буллеты) для подсказок при тегировании (§6, §6.2 ТЗ)
- * и определяет, помечен ли слайд как кейс (метка в заметках докладчика, см. $caseMarker).
+ * читает текст слайда (заголовок, буллеты, полный текст) для подсказок при тегировании (§6, §6.2 ТЗ),
+ * определяет, помечен ли слайд как кейс (метка в заметках докладчика, см. $caseMarker),
+ * и для слайдов-кейсов сохраняет картинки в $imagesDir.
  */
 class SlideTextExtractor
 {
@@ -15,20 +16,22 @@ class SlideTextExtractor
         private string $pythonBin,
         private string $scriptPath,
         private string $caseMarker = '#кейс#',
+        private ?string $imagesDir = null,
     ) {
     }
 
     /**
-     * @return array<int, array{slide_number: int, title: string, text: string, is_case: bool}>
+     * @return array<int, array{slide_number: int, title: string, text: string, is_case: bool, images: string[]}>
      */
     public function extract(string $pptxPath): array
     {
+        $command = [$this->pythonBin, $this->scriptPath, $pptxPath, $this->caseMarker];
+        if ($this->imagesDir !== null) {
+            $command[] = $this->imagesDir;
+        }
+
         $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $process = proc_open(
-            [$this->pythonBin, $this->scriptPath, $pptxPath, $this->caseMarker],
-            $descriptors,
-            $pipes
-        );
+        $process = proc_open($command, $descriptors, $pipes);
 
         if (!is_resource($process)) {
             throw new \RuntimeException('Не удалось запустить slide_text_extractor.py');

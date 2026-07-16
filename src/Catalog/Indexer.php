@@ -55,7 +55,9 @@ class Indexer
                     sourceFileName: $file['name'],
                     slideNumber: $slide['slide_number'],
                     title: $slide['title'] !== '' ? $slide['title'] : null,
+                    content: $slide['text'] !== '' ? $slide['text'] : null,
                     tags: $answer['tags'],
+                    images: $slide['images'] ?? [],
                     addedAt: date(DATE_ATOM),
                     siteUrl: $answer['site_url'],
                 ));

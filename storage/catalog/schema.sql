@@ -15,12 +15,22 @@ CREATE TABLE IF NOT EXISTS cases (
     source_file_name  TEXT    NOT NULL,             -- человекочитаемое имя презентации (для UI индексации)
     slide_number      INTEGER NOT NULL,             -- номер слайда в исходной презентации
     title             TEXT,                          -- заголовок слайда (подсказка от SlideTextExtractor)
+    content           TEXT,                          -- полный текст слайда (все текстовые блоки)
     site_url          TEXT,                          -- необязательная ссылка на сайт (например, кейс на сайте компании)
     is_hidden         INTEGER NOT NULL DEFAULT 0,    -- P1 §5.2.3: "не показывать", без удаления из каталога
     added_at          TEXT    NOT NULL,              -- ISO 8601, момент подтверждения экспертом
 
     UNIQUE (source_file_id, slide_number)            -- повторная индексация той же презентации не создаёт дублей
 );
+
+-- Картинки, извлечённые со слайда (файлы — в storage/catalog/images/, путь тут относительный).
+CREATE TABLE IF NOT EXISTS case_images (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id   INTEGER NOT NULL REFERENCES cases (id) ON DELETE CASCADE,
+    file_path TEXT    NOT NULL                        -- относительный путь внутри storage/catalog/images/
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_images_case_id ON case_images (case_id);
 
 -- Справочник тегов. Канонические имена и синонимы поддерживаются в config/tags.php (TagTaxonomy);
 -- здесь хранятся только канонические теги, реально присвоенные кейсам.
