@@ -9,6 +9,9 @@ namespace CasesBot\Catalog;
  */
 class TagTaxonomy
 {
+    // Соответствует CHECK-ограничению tags.category в storage/catalog/schema.sql.
+    public const VALID_CATEGORIES = ['industry', 'product', 'technology', 'client'];
+
     /** @var array<string, array<string, array<int, string>>> */
     private array $dictionary;
 
@@ -21,6 +24,12 @@ class TagTaxonomy
     public function categories(): array
     {
         return array_keys($this->dictionary);
+    }
+
+    /** @return array<string, string[]> Категория -> список уже существующих канонических тегов. */
+    public function canonicalTags(): array
+    {
+        return array_map(static fn (array $tags): array => array_keys($tags), $this->dictionary);
     }
 
     /** Приводит слово к канонической форме тега в категории через синонимы, либо null, если не найдено. */
@@ -66,5 +75,34 @@ class TagTaxonomy
         }
 
         return $suggestions;
+    }
+
+    /**
+     * Разбирает строку вида "категория:тег, категория:тег" (формат ручного ввода в CLI,
+     * тегов в заметках докладчика и ответа LLM) в список тегов. Пары с неизвестной категорией
+     * или пустым тегом молча пропускаются — вызывающий код решает, предупреждать об этом или нет.
+     *
+     * @return array<int, array{category: string, tag: string}>
+     */
+    public static function parseTagList(string $line): array
+    {
+        $tags = [];
+
+        foreach (explode(',', $line) as $pair) {
+            [$category, $tag] = array_pad(explode(':', trim($pair), 2), 2, null);
+            $category = $category !== null ? mb_strtolower(trim($category)) : null;
+            $tag = $tag !== null ? mb_strtolower(trim($tag)) : null;
+
+            if ($category === null || $tag === null || $tag === '') {
+                continue;
+            }
+            if (!in_array($category, self::VALID_CATEGORIES, true)) {
+                continue;
+            }
+
+            $tags[] = ['category' => $category, 'tag' => $tag];
+        }
+
+        return $tags;
     }
 }

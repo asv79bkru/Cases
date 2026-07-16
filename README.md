@@ -9,12 +9,13 @@
 CasesBot/
 ├── bin/                # CLI-скрипты: index.php, poll.php (VK Teams), presentations-list.php
 ├── config/             # Config, справочник тегов (TagTaxonomy), .env
-├── presentations/       # Исходные .pptx (кладутся через git — источник для LocalPresentationsClient)
+├── presentations/       # Исходные .pptx — НЕ в git (см. .gitignore), заливаются на сервер отдельно при деплое
 ├── public/              # Точка входа для вебхука VK Teams
 ├── python/              # SlideTextExtractor / SlideCloner (python-pptx, lxml) — вызываются из PHP как подпроцесс
 ├── src/
+│   ├── Api/Providers/   # LLM-провайдеры (Ollama, OpenCodeZen) для дополнения тегов кейсов
 │   ├── Bot/             # ChatBotController, VkTeamsClient
-│   ├── Catalog/         # CaseItem, CatalogRepository, TagTaxonomy, Indexer
+│   ├── Catalog/         # CaseItem, CatalogRepository, TagTaxonomy, Indexer, LlmTagSuggester
 │   ├── Query/           # QueryParser, Matcher
 │   ├── Presentation/    # SlideTextExtractor, SlideCloner, PresentationBuilder (PHP-обёртки)
 │   ├── Storage/         # LocalPresentationsClient (временно вместо Google Drive)
@@ -35,9 +36,16 @@ CasesBot/
 `php bin/index.php` обходит `presentations/`, извлекает текст и картинки слайдов
 (`python/slide_text_extractor.py`), но только для слайдов, помеченных экспертом меткой `#кейс#`
 в заметках докладчика (не видна ни на слайде, ни в показе) — остальное (обложка, о компании,
-контакты) пропускается автоматически. Для помеченных слайдов предлагает теги по `config/tags.php`
-и спрашивает подтверждение/правку за один проход (Enter — принять предложенное, `skip` — пропустить,
-свои теги — `категория:тег[,категория:тег...]`), плюс необязательную ссылку на сайт (`site_url`).
+контакты) пропускается автоматически.
+
+Предложенные теги для помеченных слайдов собираются из трёх источников: (1) теги, которые эксперт
+сам перечислил в тех же заметках после метки (`#кейс#\nтехнология:1с, индустрия:ритейл`) — им
+доверяем больше всего; (2) LLM по содержимому слайда (`LlmTagSuggester` через `src/Api/Providers`,
+провайдер и модель — в `.env`: `AI_PROVIDER`, `OLLAMA_*`/`OPENCODEZEN_*`); (3) простое совпадение
+по словарю `config/tags.php`. Эксперт подтверждает/правит итог за один проход (Enter — принять
+предложенное, `skip` — пропустить, свои теги — `категория:тег[,категория:тег...]`), плюс
+необязательную ссылку на сайт (`site_url`) — LLM дополняет подсказку, не решает за эксперта (§5.1.8 ТЗ).
+
 Полный текст сохраняется в `cases.content`, картинки — файлами в `storage/catalog/images/` со
 ссылками в `case_images`. Повторный запуск обновляет те же записи, не создавая дублей.
 

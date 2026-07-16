@@ -6,8 +6,9 @@ declare(strict_types=1);
  * Конфигурация приложения (см. класс Config, §6.2 ТЗ):
  * пути к рабочим папкам, токены VK Teams, путь к справочнику тегов.
  *
- * Источник презентаций временно — папка presentations/ внутри репозитория (не Google Drive,
- * см. LocalPresentationsClient): файлы кладутся через git, интеграция с Google Drive API отложена.
+ * Источник презентаций временно — папка presentations/ рядом с приложением (не Google Drive,
+ * см. LocalPresentationsClient): в git не хранится (большие бинарники), заливается на сервер
+ * отдельно при деплое; интеграция с Google Drive API отложена.
  */
 
 // getenv() работает и с .env, подгруженным вручную в bin/poll.php (putenv()),
@@ -34,6 +35,19 @@ return [
     ],
     // Слайд считается кейсом, только если эта метка есть в заметках докладчика (не на самом слайде).
     'case_marker' => $env('CASE_MARKER', '#кейс#'),
+    // LLM-провайдер для дополнения тегов по содержимому кейса (см. CasesBot\Api\Providers\ProviderFactory).
+    'llm' => [
+        'provider' => $env('AI_PROVIDER', 'opencodezen'),
+        'ollama' => [
+            'api_url' => $env('OLLAMA_API_URL', 'http://localhost:11434/v1'),
+            'api_key' => $env('OLLAMA_API_KEY'),
+            'model' => $env('OLLAMA_MODEL'),
+        ],
+        'opencodezen' => [
+            'api_key' => $env('OPENCODEZEN_API_KEY'),
+            'model' => $env('OPENCODEZEN_MODEL'),
+        ],
+    ],
     'storage' => [
         'incoming' => __DIR__ . '/../storage/incoming',
         'output' => __DIR__ . '/../storage/output',

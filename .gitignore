@@ -10,4 +10,8 @@
 
 .DS_Store
 Thumbs.db
-presentations/~$*.pptx
+/.claude/
+
+# Презентации кладутся локально/на сервер напрямую (см. deploy-скрипт), не через git — большие бинарники.
+/presentations/*
+!/presentations/.gitkeep

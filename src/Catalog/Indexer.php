@@ -6,13 +6,19 @@ namespace CasesBot\Catalog;
 
 use CasesBot\Presentation\SlideTextExtractor;
 use CasesBot\Storage\LocalPresentationsClient;
+use Throwable;
 
 /**
- * Обходит презентации (временно — папка presentations/ в репозитории, см. LocalPresentationsClient;
+ * Обходит презентации (временно — папка presentations/ рядом с приложением, см. LocalPresentationsClient;
  * интеграция с Google Drive отложена). Индексируются только слайды, помеченные экспертом как кейс —
  * меткой в заметках докладчика (см. SlideTextExtractor::$caseMarker), невидимой на самом слайде и
  * в показе; остальное (обложка, о компании, контакты) пропускается автоматически, без вопросов.
- * Через SlideTextExtractor предлагает теги, сохраняет в каталог только после подтверждения эксперта (§5.1.8 ТЗ).
+ *
+ * Предложенные теги собираются из трёх источников: (1) теги, которые эксперт сам перечислил
+ * в заметках после метки кейса — им доверяем больше всего; (2) LLM по содержимому слайда
+ * (LlmTagSuggester); (3) простое совпадение по словарю (TagTaxonomy::suggestTags). Сохраняется
+ * в каталог только после подтверждения/правки экспертом (§5.1.8 ТЗ) — LLM лишь дополняет подсказку,
+ * не решает за эксперта.
  */
 class Indexer
 {
@@ -21,6 +27,7 @@ class Indexer
         private SlideTextExtractor $slideTextExtractor,
         private TagTaxonomy $tagTaxonomy,
         private CatalogRepository $catalog,
+        private ?LlmTagSuggester $llmTagSuggester = null,
     ) {
     }
 
@@ -30,8 +37,9 @@ class Indexer
      * так вызывающий код (CLI) решает, как именно спросить подтверждение у эксперта.
      *
      * @param callable(string, array{slide_number:int,title:string,text:string}, array<int,array{category:string,tag:string}>): (array{tags: array<int,array{category:string,tag:string}>, site_url: ?string}|null) $prompt
+     * @param ?callable(string): void $onLlmError Вызывается, если LLM недоступна/вернула ошибку — индексация продолжается без неё.
      */
-    public function run(callable $prompt): void
+    public function run(callable $prompt, ?callable $onLlmError = null): void
     {
         foreach ($this->presentations->listPresentations() as $file) {
             $path = $this->presentations->getFilePath($file['id']);
@@ -42,7 +50,7 @@ class Indexer
                     continue;
                 }
 
-                $suggested = $this->tagTaxonomy->suggestTags($slide['title'] . "\n" . $slide['text']);
+                $suggested = $this->collectSuggestedTags($slide, $onLlmError);
 
                 $answer = $prompt($file['name'], $slide, $suggested);
                 if ($answer === null) {
@@ -63,5 +71,50 @@ class Indexer
                 ));
             }
         }
+    }
+
+    /**
+     * @param array{title:string, text:string, notes:string} $slide
+     * @param ?callable(string): void $onLlmError
+     * @return array<int, array{category: string, tag: string}>
+     */
+    private function collectSuggestedTags(array $slide, ?callable $onLlmError): array
+    {
+        $tags = $this->tagTaxonomy->suggestTags($slide['title'] . "\n" . $slide['text']);
+        $tags = array_merge($tags, $this->notesTags($slide['notes']));
+
+        if ($this->llmTagSuggester !== null) {
+            try {
+                $tags = array_merge(
+                    $tags,
+                    $this->llmTagSuggester->suggest($slide['title'], $slide['text'])
+                );
+            } catch (Throwable $e) {
+                if ($onLlmError !== null) {
+                    $onLlmError($e->getMessage());
+                }
+            }
+        }
+
+        return $this->dedupeTags($tags);
+    }
+
+    /** Теги, которые эксперт перечислил в заметках после метки кейса (см. SlideTextExtractor::$caseMarker). */
+    private function notesTags(string $notes): array
+    {
+        $withoutMarker = trim((string) preg_replace('/#[^\s#]+#/u', '', $notes));
+
+        return $withoutMarker !== '' ? TagTaxonomy::parseTagList($withoutMarker) : [];
+    }
+
+    /** @param array<int, array{category: string, tag: string}> $tags */
+    private function dedupeTags(array $tags): array
+    {
+        $unique = [];
+        foreach ($tags as $tag) {
+            $unique["{$tag['category']}:{$tag['tag']}"] = $tag;
+        }
+
+        return array_values($unique);
     }
 }

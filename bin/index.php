@@ -13,8 +13,10 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use CasesBot\Api\Providers\ProviderFactory;
 use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\Indexer;
+use CasesBot\Catalog\LlmTagSuggester;
 use CasesBot\Catalog\TagTaxonomy;
 use CasesBot\Presentation\SlideTextExtractor;
 use CasesBot\Storage\LocalPresentationsClient;
@@ -45,12 +47,22 @@ $slideTextExtractor = new SlideTextExtractor(
 $tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
 $catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
 
-$indexer = new Indexer($presentations, $slideTextExtractor, $tagTaxonomy, $catalog);
+$llmTagSuggester = null;
+$llmProviderName = $config['llm']['provider'];
+$llmProviderConfig = $config['llm'][$llmProviderName] ?? [];
+if (($llmProviderConfig['api_key'] ?? '') !== '' && ($llmProviderConfig['model'] ?? '') !== '') {
+    $llmTagSuggester = new LlmTagSuggester(
+        ProviderFactory::create($llmProviderName, $config['llm']),
+        $tagTaxonomy
+    );
+} else {
+    fwrite(STDOUT, "LLM-провайдер «{$llmProviderName}» не настроен (нет api_key/model в .env) — "
+        . "теги дополняются только словарём и заметками.\n");
+}
 
-// Категории соответствуют CHECK-ограничению tags.category в storage/catalog/schema.sql.
-$validCategories = ['industry', 'product', 'technology', 'client'];
+$indexer = new Indexer($presentations, $slideTextExtractor, $tagTaxonomy, $catalog, $llmTagSuggester);
 
-$indexer->run(static function (string $fileName, array $slide, array $suggested) use ($validCategories): ?array {
+$indexer->run(static function (string $fileName, array $slide, array $suggested): ?array {
     fwrite(STDOUT, "\n=== {$fileName}, слайд {$slide['slide_number']} ===\n");
     if ($slide['title'] !== '') {
         fwrite(STDOUT, "Заголовок: {$slide['title']}\n");
@@ -83,11 +95,11 @@ $indexer->run(static function (string $fileName, array $slide, array $suggested)
             if ($category === null || $tag === null || $tag === '') {
                 continue;
             }
-            if (!in_array($category, $validCategories, true)) {
+            if (!in_array($category, TagTaxonomy::VALID_CATEGORIES, true)) {
                 fwrite(
                     STDOUT,
                     "Пропущено «{$category}:{$tag}»: неизвестная категория "
-                        . '(допустимо: ' . implode(', ', $validCategories) . ")\n"
+                        . '(допустимо: ' . implode(', ', TagTaxonomy::VALID_CATEGORIES) . ")\n"
                 );
                 continue;
             }
@@ -100,6 +112,8 @@ $indexer->run(static function (string $fileName, array $slide, array $suggested)
     $siteUrl = trim((string) fgets(STDIN));
 
     return ['tags' => $tags, 'site_url' => $siteUrl !== '' ? $siteUrl : null];
+}, static function (string $error): void {
+    fwrite(STDOUT, "LLM не смогла дополнить теги: {$error}\n");
 });
 
 fwrite(STDOUT, "\nИндексация завершена. Итого в каталоге:\n");

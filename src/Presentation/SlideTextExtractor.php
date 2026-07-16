@@ -21,7 +21,7 @@ class SlideTextExtractor
     }
 
     /**
-     * @return array<int, array{slide_number: int, title: string, text: string, is_case: bool, images: string[]}>
+     * @return array<int, array{slide_number: int, title: string, text: string, notes: string, is_case: bool, images: string[]}>
      */
     public function extract(string $pptxPath): array
     {
