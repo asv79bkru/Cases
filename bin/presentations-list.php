@@ -19,7 +19,10 @@ if (is_file($envPath)) {
             continue;
         }
         [$key, $value] = explode('=', $line, 2);
-        putenv(trim($key) . '=' . trim($value));
+        $key = trim($key);
+        if (getenv($key) === false) {
+            putenv($key . '=' . trim($value));
+        }
     }
 }
 

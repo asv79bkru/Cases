@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS cases (
     source_file_name  TEXT    NOT NULL,             -- человекочитаемое имя презентации (для UI индексации)
     slide_number      INTEGER NOT NULL,             -- номер слайда в исходной презентации
     title             TEXT,                          -- заголовок слайда (подсказка от SlideTextExtractor)
+    site_url          TEXT,                          -- необязательная ссылка на сайт (например, кейс на сайте компании)
     is_hidden         INTEGER NOT NULL DEFAULT 0,    -- P1 §5.2.3: "не показывать", без удаления из каталога
     added_at          TEXT    NOT NULL,              -- ISO 8601, момент подтверждения экспертом
 
