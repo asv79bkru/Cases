@@ -27,6 +27,10 @@ class LocalPresentationsClient
         $files = [];
 
         foreach (glob($base . '/*.pptx') ?: [] as $path) {
+            if (str_starts_with(basename($path), '~$')) {
+                continue; // временный lock-файл открытого в PowerPoint документа, не презентация
+            }
+
             $mtime = filemtime($path);
             $files[] = [
                 'id' => basename($path),

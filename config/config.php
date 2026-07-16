@@ -31,6 +31,8 @@ return [
         'slide_text_extractor' => __DIR__ . '/../python/slide_text_extractor.py',
         'slide_cloner' => __DIR__ . '/../python/slide_cloner.py',
     ],
+    // Слайд считается кейсом, только если эта метка есть в заметках докладчика (не на самом слайде).
+    'case_marker' => $env('CASE_MARKER', '#кейс#'),
     'storage' => [
         'incoming' => __DIR__ . '/../storage/incoming',
         'output' => __DIR__ . '/../storage/output',

@@ -36,7 +36,11 @@ if (is_file($envPath)) {
 $config = require __DIR__ . '/../config/config.php';
 
 $presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
-$slideTextExtractor = new SlideTextExtractor($config['python']['bin'], $config['python']['slide_text_extractor']);
+$slideTextExtractor = new SlideTextExtractor(
+    $config['python']['bin'],
+    $config['python']['slide_text_extractor'],
+    $config['case_marker']
+);
 $tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
 $catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
 

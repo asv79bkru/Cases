@@ -9,8 +9,10 @@ use CasesBot\Storage\LocalPresentationsClient;
 
 /**
  * Обходит презентации (временно — папка presentations/ в репозитории, см. LocalPresentationsClient;
- * интеграция с Google Drive отложена), через SlideTextExtractor предлагает теги,
- * сохраняет в каталог только после подтверждения эксперта (§5.1.8 ТЗ).
+ * интеграция с Google Drive отложена). Индексируются только слайды, помеченные экспертом как кейс —
+ * меткой в заметках докладчика (см. SlideTextExtractor::$caseMarker), невидимой на самом слайде и
+ * в показе; остальное (обложка, о компании, контакты) пропускается автоматически, без вопросов.
+ * Через SlideTextExtractor предлагает теги, сохраняет в каталог только после подтверждения эксперта (§5.1.8 ТЗ).
  */
 class Indexer
 {
@@ -36,6 +38,10 @@ class Indexer
             $slides = $this->slideTextExtractor->extract($path);
 
             foreach ($slides as $slide) {
+                if (!$slide['is_case']) {
+                    continue;
+                }
+
                 $suggested = $this->tagTaxonomy->suggestTags($slide['title'] . "\n" . $slide['text']);
 
                 $answer = $prompt($file['name'], $slide, $suggested);
