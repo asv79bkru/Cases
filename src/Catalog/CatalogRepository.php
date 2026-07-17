@@ -110,4 +110,25 @@ class CatalogRepository
 
         return $this->pdo->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
     }
+
+    /**
+     * Кейсы с заданным тегом (source_file_id + slide_number — то, что нужно SlideCloner'у).
+     * Простейший поиск на время, пока не реализован полноценный Matcher (§6.2 ТЗ).
+     *
+     * @return array<int, array{id: int, source_file_id: string, slide_number: int, title: ?string}>
+     */
+    public function findByTag(string $category, string $tag): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT c.id, c.source_file_id, c.slide_number, c.title
+             FROM cases c
+             JOIN case_tags ct ON ct.case_id = c.id
+             JOIN tags t ON t.id = ct.tag_id
+             WHERE c.is_hidden = 0 AND t.category = :category AND t.name = :tag
+             ORDER BY c.id'
+        );
+        $stmt->execute(['category' => $category, 'tag' => $tag]);
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
 }

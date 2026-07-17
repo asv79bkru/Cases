@@ -7,7 +7,7 @@
 
 ```
 CasesBot/
-├── bin/                # CLI-скрипты: index.php, poll.php (VK Teams), presentations-list.php
+├── bin/                # CLI-скрипты: index.php, poll.php (VK Teams), presentations-list.php, build-test.php
 ├── config/             # Config, справочник тегов (TagTaxonomy), .env
 ├── presentations/       # Исходные .pptx — НЕ в git (см. .gitignore), заливаются на сервер отдельно при деплое
 ├── public/              # Точка входа для вебхука VK Teams
@@ -49,8 +49,24 @@ CasesBot/
 Полный текст сохраняется в `cases.content`, картинки — файлами в `storage/catalog/images/` со
 ссылками в `case_images`. Повторный запуск обновляет те же записи, не создавая дублей.
 
+## Сборка презентации
+
+`SlideCloner` (`python/slide_cloner.py`) копирует слайды между презентациями на уровне сырых частей
+OOXML-пакета (python-pptx opc/package API, не через объектную модель) — слайд, его layout, master,
+theme и все media копируются как есть, с ремаппингом id/media/layout-master; заметки докладчика
+(там могут быть внутренние `#кейс#`/теги эксперта) не копируются. Проверено: форматирование
+(кастомные шрифты, цвета, размеры) сохраняется побайтово идентично оригиналу.
+
+`PresentationBuilder` вызывает `SlideCloner` для нужных слайдов, затем сам добавляет титульный слайд
+(тема + дата) и сохраняет финальный файл в `storage/output/`.
+
+Проверка без чат-интеграции (Matcher ещё не реализован — прямой поиск по тегу):
+```
+php bin/build-test.php industry:ритейл
+```
+
 ## Этапы разработки (§9 ТЗ)
 
-1. **Недели 1–2** — `Indexer`, `CatalogRepository`, `TagTaxonomy`: построение каталога, проверка тегирования/поиска через `bin/index.php`.
-2. **Недели 3–4** — `SlideCloner`, `PresentationBuilder`: сборка pptx, интеграция с VK Teams Bot API (`public/index.php`).
+1. **Недели 1–2** — `Indexer`, `CatalogRepository`, `TagTaxonomy`: построение каталога, проверка тегирования/поиска через `bin/index.php`. ✅
+2. **Недели 3–4** — `SlideCloner`, `PresentationBuilder`: сборка pptx (готово, проверено на форматировании) ✅; интеграция с VK Teams Bot API (`QueryParser`/`Matcher` — ещё нет).
 3. **Неделя 5+** — пилот на реальных запросах, донастройка справочника тегов и лимитов.

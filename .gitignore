@@ -11,6 +11,7 @@
 .DS_Store
 Thumbs.db
 /.claude/
+__pycache__/
 
 # Презентации кладутся локально/на сервер напрямую (см. deploy-скрипт), не через git — большие бинарники.
 /presentations/*
