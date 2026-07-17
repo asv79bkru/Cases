@@ -16,6 +16,7 @@ use CasesBot\Bot\ChatBotController;
 use CasesBot\Bot\Commands\CasesCommand;
 use CasesBot\Bot\VkTeamsClient;
 use CasesBot\Catalog\CatalogRepository;
+use CasesBot\Catalog\TagTaxonomy;
 use CasesBot\Presentation\PresentationBuilder;
 use CasesBot\Presentation\SlideCloner;
 use CasesBot\Storage\LocalPresentationsClient;
@@ -44,6 +45,7 @@ if ($config['vk_teams']['bot_token'] === '' || $config['vk_teams']['api_url'] ==
 $vkTeamsClient = new VkTeamsClient($config['vk_teams']['bot_token'], $config['vk_teams']['api_url']);
 $catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
 $presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
+$tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
 $slideCloner = new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']);
 $presentationBuilder = new PresentationBuilder(
     $slideCloner,
@@ -57,6 +59,7 @@ $casesCommand = new CasesCommand(
     $catalog,
     $presentations,
     $presentationBuilder,
+    $tagTaxonomy,
     $config['max_slides_per_deck']
 );
 

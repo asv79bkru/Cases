@@ -105,4 +105,23 @@ class TagTaxonomy
 
         return $tags;
     }
+
+    /**
+     * Разбирает строку и сразу приводит каждый тег к канонической форме через normalize()
+     * (например, «industry:it» и «industry:ит» — один и тот же тег). Термин, которого нет
+     * в справочнике (в т.ч. новый тег, ещё не добавленный в config/tags.php), остаётся как есть —
+     * так найдутся и теги, добавленные в каталог напрямую при индексации.
+     *
+     * @return array<int, array{category: string, tag: string}>
+     */
+    public function parseAndNormalize(string $line): array
+    {
+        return array_map(
+            fn (array $tag): array => [
+                'category' => $tag['category'],
+                'tag' => $this->normalize($tag['category'], $tag['tag']) ?? $tag['tag'],
+            ],
+            self::parseTagList($line)
+        );
+    }
 }

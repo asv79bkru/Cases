@@ -16,7 +16,9 @@ use Throwable;
  * (PresentationBuilder), отправка файла обратно в чат (§5.1.6 ТЗ).
  *
  * QueryParser (разбор свободного текста в теги через синонимы, §5.1.2) ещё не реализован — команда
- * принимает теги явно, в том же формате "категория:тег", что и везде в проекте (CLI, заметки, LLM):
+ * принимает теги явно, в том же формате "категория:тег", что и везде в проекте (CLI, заметки, LLM).
+ * Тег при этом проходит через TagTaxonomy::normalize(), так что синонимы из config/tags.php работают
+ * и здесь — «industry:it» и «industry:ит» находят один и тот же тег:
  *   кейсы technology:1с, industry:ритейл
  */
 class CasesCommand implements CommandInterface
@@ -28,6 +30,7 @@ class CasesCommand implements CommandInterface
         private CatalogRepository $catalog,
         private LocalPresentationsClient $presentations,
         private PresentationBuilder $presentationBuilder,
+        private TagTaxonomy $tagTaxonomy,
         private int $maxSlidesPerDeck,
     ) {
     }
@@ -39,7 +42,7 @@ class CasesCommand implements CommandInterface
 
     public function handle(string $chatId, string $text): void
     {
-        $tags = TagTaxonomy::parseTagList($this->stripTrigger($text));
+        $tags = $this->tagTaxonomy->parseAndNormalize($this->stripTrigger($text));
 
         if ($tags === []) {
             $this->vkTeamsClient->sendText(

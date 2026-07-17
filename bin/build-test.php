@@ -38,7 +38,8 @@ if (!isset($argv[1])) {
     exit(1);
 }
 
-$tags = TagTaxonomy::parseTagList($argv[1]);
+$tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
+$tags = $tagTaxonomy->parseAndNormalize($argv[1]);
 if ($tags === []) {
     fwrite(STDERR, "Не разобрано ни одного тега из «{$argv[1]}» "
         . '(допустимые категории: ' . implode(', ', TagTaxonomy::VALID_CATEGORIES) . ")\n");
