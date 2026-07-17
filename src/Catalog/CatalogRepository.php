@@ -177,4 +177,18 @@ class CatalogRepository
 
         return $this->pdo->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
     }
+
+    /**
+     * Тег по точному имени в любой категории — резерв для слов, которых ещё нет в config/tags.php,
+     * но которые уже есть как канонический тег в каталоге (например, добавленные LLM при индексации).
+     *
+     * @return array<int, array{category: string, tag: string}>
+     */
+    public function findTagsByName(string $name): array
+    {
+        $stmt = $this->pdo->prepare('SELECT category, name AS tag FROM tags WHERE LOWER(name) = LOWER(:name)');
+        $stmt->execute(['name' => trim($name)]);
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
 }

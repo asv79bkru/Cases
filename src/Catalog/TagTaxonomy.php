@@ -78,6 +78,26 @@ class TagTaxonomy
     }
 
     /**
+     * Ищет канонический тег по слову (точное имя или синоним) сразу во ВСЕХ категориях —
+     * для запросов вида «кейсы ритейл» без явного указания категории. Слово может совпасть
+     * с тегами в нескольких категориях сразу (например, «торговля» — и industry, и product).
+     *
+     * @return array<int, array{category: string, tag: string}>
+     */
+    public function normalizeInAnyCategory(string $term): array
+    {
+        $matches = [];
+        foreach ($this->categories() as $category) {
+            $canonical = $this->normalize($category, $term);
+            if ($canonical !== null) {
+                $matches[] = ['category' => $category, 'tag' => $canonical];
+            }
+        }
+
+        return $matches;
+    }
+
+    /**
      * Разбирает строку вида "категория:тег, категория:тег" (формат ручного ввода в CLI,
      * тегов в заметках докладчика и ответа LLM) в список тегов. Пары с неизвестной категорией
      * или пустым тегом молча пропускаются — вызывающий код решает, предупреждать об этом или нет.

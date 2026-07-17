@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 /**
  * Проверка сборки подборки без чат-интеграции — то же самое, что делает команда "кейсы"
- * (src/Bot/Commands/CasesCommand.php), только без VK Teams: найти по тегам и собрать pptx.
+ * (src/Bot/Commands/CasesCommand.php: parseQuery() + findByTags() + PresentationBuilder),
+ * только без VK Teams.
  *
- * Запуск: php bin/build-test.php "technology:1с, industry:ритейл"
+ * Запуск: php bin/build-test.php "ритейл"
+ *         php bin/build-test.php "technology:1с, industry:ритейл"
  */
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use CasesBot\Bot\Commands\CasesCommand;
+use CasesBot\Bot\VkTeamsClient;
 use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\TagTaxonomy;
 use CasesBot\Presentation\PresentationBuilder;
@@ -34,20 +38,13 @@ if (is_file($envPath)) {
 $config = require __DIR__ . '/../config/config.php';
 
 if (!isset($argv[1])) {
-    fwrite(STDERR, "Использование: php bin/build-test.php \"категория:тег[, категория:тег...]\"\n");
-    exit(1);
-}
-
-$tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
-$tags = $tagTaxonomy->parseAndNormalize($argv[1]);
-if ($tags === []) {
-    fwrite(STDERR, "Не разобрано ни одного тега из «{$argv[1]}» "
-        . '(допустимые категории: ' . implode(', ', TagTaxonomy::VALID_CATEGORIES) . ")\n");
+    fwrite(STDERR, "Использование: php bin/build-test.php \"ритейл\" (или \"категория:тег[, ...]\")\n");
     exit(1);
 }
 
 $catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
 $presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
+$tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
 $slideCloner = new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']);
 $builder = new PresentationBuilder(
     $slideCloner,
@@ -55,10 +52,22 @@ $builder = new PresentationBuilder(
     $config['python']['slide_cloner'],
     $config['storage']['output']
 );
+// VkTeamsClient не используется (никаких sendText/sendFile здесь не вызывается) — нужен только
+// как обязательная зависимость конструктора CasesCommand, чтобы переиспользовать его parseQuery().
+$vkTeamsClient = new VkTeamsClient($config['vk_teams']['bot_token'], $config['vk_teams']['api_url']);
+
+$casesCommand = new CasesCommand($vkTeamsClient, $catalog, $presentations, $builder, $tagTaxonomy, $config['max_slides_per_deck']);
+
+$tags = $casesCommand->parseQuery($argv[1]);
+if ($tags === []) {
+    fwrite(STDERR, "Не разобрано ни одного тега из «{$argv[1]}» "
+        . '(допустимые категории: ' . implode(', ', TagTaxonomy::VALID_CATEGORIES) . ")\n");
+    exit(1);
+}
 
 $rows = $catalog->findByTags($tags, $config['max_slides_per_deck']);
 if ($rows === []) {
-    fwrite(STDOUT, "Кейсов по тегам «{$argv[1]}» не найдено.\n");
+    fwrite(STDOUT, "Кейсов по «{$argv[1]}» не найдено.\n");
     exit(0);
 }
 

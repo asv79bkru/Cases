@@ -15,11 +15,16 @@ use Throwable;
  * Команда «кейсы»: поиск по тегам (CatalogRepository::findByTags, §5.1.3) и сборка подборки
  * (PresentationBuilder), отправка файла обратно в чат (§5.1.6 ТЗ).
  *
- * QueryParser (разбор свободного текста в теги через синонимы, §5.1.2) ещё не реализован — команда
- * принимает теги явно, в том же формате "категория:тег", что и везде в проекте (CLI, заметки, LLM).
- * Тег при этом проходит через TagTaxonomy::normalize(), так что синонимы из config/tags.php работают
- * и здесь — «industry:it» и «industry:ит» находят один и тот же тег:
- *   кейсы technology:1с, industry:ритейл
+ * Принимает два вида запроса:
+ *  - явный "категория:тег[, категория:тег...]" (как в CLI/заметках/LLM):
+ *      кейсы technology:1с, industry:ритейл
+ *  - просто слово (или несколько через запятую/пробел) без категории — ищется среди тегов
+ *    во ВСЕХ категориях сразу, через словарь синонимов (TagTaxonomy) с резервом на прямое
+ *    совпадение по названию тега в базе:
+ *      кейсы ритейл
+ *      кейсы производство
+ * Полноценный QueryParser (разбор произвольного свободного текста, §5.1.2) — задел на будущее,
+ * пока команда ищет по отдельным словам, а не по смыслу всей фразы.
  */
 class CasesCommand implements CommandInterface
 {
@@ -42,12 +47,14 @@ class CasesCommand implements CommandInterface
 
     public function handle(string $chatId, string $text): void
     {
-        $tags = $this->tagTaxonomy->parseAndNormalize($this->stripTrigger($text));
+        $tags = $this->parseQuery($this->stripTrigger($text));
 
         if ($tags === []) {
             $this->vkTeamsClient->sendText(
                 $chatId,
-                "Не разобрал теги запроса.\nПример: «кейсы technology:1с, industry:ритейл» "
+                "Не нашёл ни одного известного тега в запросе.\n"
+                    . 'Примеры: «кейсы ритейл», «кейсы производство», '
+                    . 'или явно «кейсы technology:1с, industry:ритейл» '
                     . '(категории: ' . implode(', ', TagTaxonomy::VALID_CATEGORIES) . ').'
             );
 
@@ -90,6 +97,56 @@ class CasesCommand implements CommandInterface
         $rest = mb_substr(ltrim($text), mb_strlen(self::TRIGGER));
 
         return ltrim($rest, " \t\n\r:—-");
+    }
+
+    /**
+     * Части, разделённые запятой, могут быть явным "категория:тег" (тогда категория уже известна)
+     * либо просто словом/несколькими словами через пробел — каждое слово ищется отдельно во всех
+     * категориях сразу (TagTaxonomy::normalizeInAnyCategory, с резервом на CatalogRepository::findTagsByName
+     * для тегов, которых ещё нет в config/tags.php). Дубли по (категория, тег) схлопываются.
+     *
+     * @return array<int, array{category: string, tag: string}>
+     */
+    public function parseQuery(string $query): array
+    {
+        $tags = [];
+
+        foreach (preg_split('/[,\n]+/u', $query) as $part) {
+            $part = trim($part);
+            if ($part === '') {
+                continue;
+            }
+
+            if (str_contains($part, ':')) {
+                foreach (TagTaxonomy::parseTagList($part) as $pair) {
+                    $canonical = $this->tagTaxonomy->normalize($pair['category'], $pair['tag']) ?? $pair['tag'];
+                    $tags[] = ['category' => $pair['category'], 'tag' => $canonical];
+                }
+
+                continue;
+            }
+
+            foreach (preg_split('/\s+/u', $part) as $word) {
+                $word = trim($word);
+                if ($word === '') {
+                    continue;
+                }
+
+                $found = $this->tagTaxonomy->normalizeInAnyCategory($word);
+                if ($found === []) {
+                    $found = $this->catalog->findTagsByName($word);
+                }
+
+                array_push($tags, ...$found);
+            }
+        }
+
+        $unique = [];
+        foreach ($tags as $tag) {
+            $unique["{$tag['category']}:{$tag['tag']}"] = $tag;
+        }
+
+        return array_values($unique);
     }
 
     /** @param array<int, array{title: ?string}> $rows */
