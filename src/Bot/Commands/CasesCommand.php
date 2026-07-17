@@ -54,8 +54,6 @@ class CasesCommand implements CommandInterface
             return;
         }
 
-        $this->vkTeamsClient->sendText($chatId, 'Собираю подборку, минуту…');
-
         $rows = $this->catalog->findByTags($tags, $this->maxSlidesPerDeck);
 
         if ($rows === []) {
@@ -63,6 +61,8 @@ class CasesCommand implements CommandInterface
 
             return;
         }
+
+        $this->vkTeamsClient->sendText($chatId, $this->foundCasesMessage($rows));
 
         try {
             $slides = array_map(
@@ -90,6 +90,17 @@ class CasesCommand implements CommandInterface
         $rest = mb_substr(ltrim($text), mb_strlen(self::TRIGGER));
 
         return ltrim($rest, " \t\n\r:—-");
+    }
+
+    /** @param array<int, array{title: ?string}> $rows */
+    private function foundCasesMessage(array $rows): string
+    {
+        $titles = implode("\n", array_map(
+            static fn (array $row): string => '— ' . ($row['title'] ?? '(без названия)'),
+            $rows
+        ));
+
+        return 'Нашёл ' . count($rows) . " кейс(ов):\n{$titles}\n\nСобираю подборку, минуту…";
     }
 
     private function noResultsMessage(): string
