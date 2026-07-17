@@ -112,23 +112,69 @@ class CatalogRepository
     }
 
     /**
-     * Кейсы с заданным тегом (source_file_id + slide_number — то, что нужно SlideCloner'у).
-     * Простейший поиск на время, пока не реализован полноценный Matcher (§6.2 ТЗ).
+     * Кейсы с заданным тегом. Частный случай findByTags() — оставлен для CLI-проверок.
      *
      * @return array<int, array{id: int, source_file_id: string, slide_number: int, title: ?string}>
      */
     public function findByTag(string $category, string $tag): array
     {
-        $stmt = $this->pdo->prepare(
-            'SELECT c.id, c.source_file_id, c.slide_number, c.title
-             FROM cases c
-             JOIN case_tags ct ON ct.case_id = c.id
-             JOIN tags t ON t.id = ct.tag_id
-             WHERE c.is_hidden = 0 AND t.category = :category AND t.name = :tag
-             ORDER BY c.id'
-        );
-        $stmt->execute(['category' => $category, 'tag' => $tag]);
+        return $this->findByTags([['category' => $category, 'tag' => $tag]]);
+    }
+
+    /**
+     * Ищет и ранжирует кейсы по совпавшим тегам: сначала — кейсы с бо́льшим числом совпадений
+     * (§5.1.3 ТЗ). Кейс попадает в выдачу, если совпал хотя бы один тег из $tags.
+     *
+     * @param array<int, array{category: string, tag: string}> $tags
+     * @return array<int, array{id: int, source_file_id: string, slide_number: int, title: ?string, match_count: int}>
+     */
+    public function findByTags(array $tags, int $limit = 0): array
+    {
+        if ($tags === []) {
+            return [];
+        }
+
+        $conditions = [];
+        $params = [];
+        foreach ($tags as $i => $tag) {
+            $conditions[] = "(t.category = :category{$i} AND t.name = :tag{$i})";
+            $params["category{$i}"] = $tag['category'];
+            $params["tag{$i}"] = $tag['tag'];
+        }
+
+        $sql = 'SELECT c.id, c.source_file_id, c.slide_number, c.title, COUNT(*) AS match_count
+                FROM cases c
+                JOIN case_tags ct ON ct.case_id = c.id
+                JOIN tags t ON t.id = ct.tag_id
+                WHERE c.is_hidden = 0 AND (' . implode(' OR ', $conditions) . ')
+                GROUP BY c.id
+                ORDER BY match_count DESC, c.id ASC';
+
+        if ($limit > 0) {
+            $sql .= ' LIMIT ' . $limit;
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
 
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Все теги, реально присвоенные видимым кейсам — подсказка «доступные темы»
+     * в сообщении об отсутствии результатов (§5.1.7 ТЗ).
+     *
+     * @return array<int, array{category: string, tag: string}>
+     */
+    public function allTags(): array
+    {
+        $sql = "SELECT DISTINCT t.category, t.name AS tag
+                FROM tags t
+                JOIN case_tags ct ON ct.tag_id = t.id
+                JOIN cases c ON c.id = ct.case_id
+                WHERE c.is_hidden = 0
+                ORDER BY t.category, t.name";
+
+        return $this->pdo->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
     }
 }

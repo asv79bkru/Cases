@@ -4,16 +4,17 @@ declare(strict_types=1);
 
 namespace CasesBot\Bot;
 
+use CasesBot\Bot\Commands\CommandInterface;
+
 /**
- * Обрабатывает входящее сообщение: QueryParser -> Matcher -> PresentationBuilder -> ответ (§6.1, §6.2 ТЗ).
- *
- * Временная реализация: QueryParser/Matcher/PresentationBuilder ещё не реализованы (Этап 1/2 из §9 ТЗ),
- * поэтому контроллер только подтверждает приём запроса — минимальный echo-цикл для проверки связи с VK Teams.
+ * Обрабатывает входящее сообщение: находит первую подходящую команду (src/Bot/Commands/)
+ * по триггеру и передаёт ей обработку (§6.1 ТЗ). Сообщения без известного триггера игнорируются.
  */
 class ChatBotController
 {
+    /** @param CommandInterface[] $commands */
     public function __construct(
-        private VkTeamsClient $vkTeamsClient,
+        private array $commands,
     ) {
     }
 
@@ -32,9 +33,12 @@ class ChatBotController
             return;
         }
 
-        $this->vkTeamsClient->sendText(
-            (string) $chatId,
-            "Принял запрос: «{$text}».\nПоиск и сборка кейсов ещё в разработке (Этап 1/2), скоро здесь будет готовая подборка."
-        );
+        foreach ($this->commands as $command) {
+            if ($command->matches($text)) {
+                $command->handle((string) $chatId, $text);
+
+                return;
+            }
+        }
     }
 }

@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 /**
- * Минимальный рабочий цикл приёма сообщений VK Teams (long polling events/get).
- * Промежуточное решение до готовности QueryParser/Matcher/PresentationBuilder (Этап 1/2, §9 ТЗ):
- * ChatBotController пока только подтверждает приём запроса.
+ * Рабочий цикл приёма сообщений VK Teams (long polling events/get).
+ * Команды бота — отдельные классы в src/Bot/Commands/ (CommandInterface), ChatBotController
+ * лишь передаёт сообщение первой подошедшей по триггеру (§6.1 ТЗ).
  *
  * Запуск: php bin/poll.php
  */
@@ -13,7 +13,12 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use CasesBot\Bot\ChatBotController;
+use CasesBot\Bot\Commands\CasesCommand;
 use CasesBot\Bot\VkTeamsClient;
+use CasesBot\Catalog\CatalogRepository;
+use CasesBot\Presentation\PresentationBuilder;
+use CasesBot\Presentation\SlideCloner;
+use CasesBot\Storage\LocalPresentationsClient;
 
 $envPath = __DIR__ . '/../.env';
 if (is_file($envPath)) {
@@ -36,17 +41,35 @@ if ($config['vk_teams']['bot_token'] === '' || $config['vk_teams']['api_url'] ==
     exit(1);
 }
 
-$client = new VkTeamsClient($config['vk_teams']['bot_token'], $config['vk_teams']['api_url']);
-$controller = new ChatBotController($client);
+$vkTeamsClient = new VkTeamsClient($config['vk_teams']['bot_token'], $config['vk_teams']['api_url']);
+$catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
+$presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
+$slideCloner = new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']);
+$presentationBuilder = new PresentationBuilder(
+    $slideCloner,
+    $config['python']['bin'],
+    $config['python']['slide_cloner'],
+    $config['storage']['output']
+);
 
-$self = $client->selfGet();
+$casesCommand = new CasesCommand(
+    $vkTeamsClient,
+    $catalog,
+    $presentations,
+    $presentationBuilder,
+    $config['max_slides_per_deck']
+);
+
+$controller = new ChatBotController([$casesCommand]);
+
+$self = $vkTeamsClient->selfGet();
 fwrite(STDOUT, "Подключено как @{$self['nick']} (userId {$self['userId']})\n");
 
 $lastEventId = 0;
 
 while (true) {
     try {
-        $events = $client->getEvents($lastEventId);
+        $events = $vkTeamsClient->getEvents($lastEventId);
         foreach ($events as $event) {
             $lastEventId = max($lastEventId, (int) $event['eventId']);
             $controller->handleEvent($event);
