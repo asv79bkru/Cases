@@ -4,6 +4,8 @@ vendor/
 storage/incoming/*
 storage/output/*
 storage/logs/*
+storage/catalog/*.sqlite
+storage/catalog/images/*
 !storage/**/.gitkeep
 tests/
 docs/

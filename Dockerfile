@@ -7,6 +7,17 @@ RUN apk add --no-cache libzip libxml2 \
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
+# python-pptx/lxml для SlideTextExtractor и SlideCloner (§6 ТЗ — OOXML-хирургия на стороне Python).
+# Ставим в venv: Alpine отдельно даёт только python3, а PYTHON_BIN по умолчанию ждёт "python";
+# venv кладёт оба имени в PATH и не конфликтует с системным pip (PEP 668).
+RUN apk add --no-cache python3 py3-pip \
+    && apk add --no-cache --virtual .py-build-deps gcc musl-dev python3-dev libxml2-dev libxslt-dev jpeg-dev zlib-dev \
+    && python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY python/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+    && apk del .py-build-deps
+
 WORKDIR /app
 
 COPY composer.json composer.lock ./
