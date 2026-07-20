@@ -91,17 +91,6 @@ def copy_part_and_deps(source_part, dest_package, cache):
     return new_part
 
 
-def strip_default_master(dest_prs):
-    """Presentation() «из воздуха» идёт с одним неиспользуемым master'ом (и его layouts/theme) —
-    он не нужен ни одному скопированному слайду, но остаётся заявленным в sldMasterIdLst. Убираем
-    его, чтобы не путать реальный PowerPoint лишним объявлением и не пересекаться по id с ним же."""
-    sldMasterIdLst = dest_prs._element.get_or_add_sldMasterIdLst()
-    for sldMasterId in list(sldMasterIdLst):
-        rId = sldMasterId.get(qn('r:id'))
-        sldMasterIdLst.remove(sldMasterId)
-        dest_prs.part.drop_rel(rId)
-
-
 def next_master_id(dest_prs):
     """Аналог python-pptx'ного _next_id для sldId, но для sldMasterId: PowerPoint нумерует
     их начиная примерно с 2147483648; python-pptx сам это не делает (id на sldMasterId
@@ -131,7 +120,6 @@ def register_master(dest_prs, dest_package, source_master_part, cache, registere
 
 def clone_slides(slides_spec, output_path):
     dest_prs = Presentation()
-    strip_default_master(dest_prs)
     dest_package = dest_prs.part.package
     cache = {}
     registered_masters = set()
@@ -166,9 +154,28 @@ def clone_slides(slides_spec, output_path):
     return len(slides_spec)
 
 
+def find_title_layout(prs):
+    """Layout с настоящим плейсхолдером-заголовком (обычным или центрированным титульным).
+
+    Не полагаемся на slide_masters[0].slide_layouts[0] — для пустого Presention() это и
+    правда всегда "Title Slide", но после clone_slides() в файле уже есть master(ы),
+    скопированные из исходных презентаций, и от их состава/порядка layouts мы не зависим.
+    """
+    from pptx.enum.shapes import PP_PLACEHOLDER
+
+    title_types = {PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.CENTER_TITLE}
+    for master in prs.slide_masters:
+        for layout in master.slide_layouts:
+            for placeholder in layout.placeholders:
+                if placeholder.placeholder_format.type in title_types:
+                    return layout
+
+    return prs.slide_masters[0].slide_layouts[0]  # запасной вариант, если титульного не нашлось
+
+
 def add_title_slide(path, title, date):
     prs = Presentation(path)
-    layout = prs.slide_masters[0].slide_layouts[0]  # "Title Slide"
+    layout = find_title_layout(prs)
     slide = prs.slides.add_slide(layout)
     slide.shapes.title.text = title
     if len(slide.placeholders) > 1:
