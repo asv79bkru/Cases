@@ -68,7 +68,11 @@ class VkTeamsClient
         } else {
             $postFields = $params;
             foreach ($files as $field => $path) {
-                $postFields[$field] = curl_file_create($path);
+                $postFields[$field] = curl_file_create(
+                    $path,
+                    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    basename($path)
+                );
             }
             $options[CURLOPT_URL] = $url;
             $options[CURLOPT_POST] = true;

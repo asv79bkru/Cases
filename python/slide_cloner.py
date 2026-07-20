@@ -91,6 +91,27 @@ def copy_part_and_deps(source_part, dest_package, cache):
     return new_part
 
 
+def strip_default_master(dest_prs):
+    """Presentation() «из воздуха» идёт с одним неиспользуемым master'ом (и его layouts/theme) —
+    он не нужен ни одному скопированному слайду, но остаётся заявленным в sldMasterIdLst. Убираем
+    его, чтобы не путать реальный PowerPoint лишним объявлением и не пересекаться по id с ним же."""
+    sldMasterIdLst = dest_prs._element.get_or_add_sldMasterIdLst()
+    for sldMasterId in list(sldMasterIdLst):
+        rId = sldMasterId.get(qn('r:id'))
+        sldMasterIdLst.remove(sldMasterId)
+        dest_prs.part.drop_rel(rId)
+
+
+def next_master_id(dest_prs):
+    """Аналог python-pptx'ного _next_id для sldId, но для sldMasterId: PowerPoint нумерует
+    их начиная примерно с 2147483648; python-pptx сам это не делает (id на sldMasterId
+    формально необязателен по схеме), но реальный PowerPoint всегда его пишет и без него
+    может счесть файл повреждённым и «починить» — молча, без явной ошибки при чтении."""
+    sldMasterIdLst = dest_prs._element.get_or_add_sldMasterIdLst()
+    used = [int(el.get('id')) for el in sldMasterIdLst if el.get('id') is not None]
+    return max([2147483647] + used) + 1
+
+
 def register_master(dest_prs, dest_package, source_master_part, cache, registered_masters):
     """Гарантирует, что master (уже скопированный в cache через слайд/layout) числится
     в p:sldMasterIdLst презентации — иначе PowerPoint может считать файл повреждённым,
@@ -104,11 +125,13 @@ def register_master(dest_prs, dest_package, source_master_part, cache, registere
     rId = dest_prs.part.relate_to(dest_master_part, RT.SLIDE_MASTER)
     sldMasterIdLst = dest_prs._element.get_or_add_sldMasterIdLst()
     el = etree.SubElement(sldMasterIdLst, qn("p:sldMasterId"))
+    el.set("id", str(next_master_id(dest_prs)))
     el.set(qn("r:id"), rId)
 
 
 def clone_slides(slides_spec, output_path):
     dest_prs = Presentation()
+    strip_default_master(dest_prs)
     dest_package = dest_prs.part.package
     cache = {}
     registered_masters = set()
