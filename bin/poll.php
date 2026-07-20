@@ -43,7 +43,10 @@ if ($config['vk_teams']['bot_token'] === '' || $config['vk_teams']['api_url'] ==
 $vkTeamsClient = new VkTeamsClient($config['vk_teams']['bot_token'], $config['vk_teams']['api_url']);
 $catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
 $tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
-$presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
+$presentations = new LocalPresentationsClient(
+    $config['presentations']['folder_path'],
+    $config['presentations']['http_base_url'],
+);
 
 $casesCommand = new CasesCommand($vkTeamsClient, $catalog, $presentations, $tagTaxonomy, $config['max_slides_per_deck']);
 

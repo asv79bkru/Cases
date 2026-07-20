@@ -98,6 +98,10 @@ class CasesCommand implements CommandInterface
             try {
                 $path = $this->presentations->getFilePath($sourceFileId);
                 $this->vkTeamsClient->sendFile($chatId, $path, $caption);
+                $this->vkTeamsClient->sendText(
+                    $chatId,
+                    "Прямая ссылка на «{$sourceFileId}»: " . $this->presentations->getPublicUrl($sourceFileId)
+                );
             } catch (Throwable $e) {
                 $this->vkTeamsClient->sendText(
                     $chatId,

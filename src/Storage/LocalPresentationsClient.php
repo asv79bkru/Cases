@@ -13,6 +13,7 @@ class LocalPresentationsClient
 {
     public function __construct(
         private string $folderPath,
+        private string $httpBaseUrl = '',
     ) {
     }
 
@@ -53,5 +54,13 @@ class LocalPresentationsClient
         }
 
         return $path;
+    }
+
+    /** Прямая HTTP-ссылка на файл (см. docker/entrypoint.sh — presentations/ отдаётся на :8080). */
+    public function getPublicUrl(string $id): string
+    {
+        $path = $this->getFilePath($id);
+
+        return rtrim($this->httpBaseUrl, '/') . '/' . rawurlencode(basename($path));
     }
 }

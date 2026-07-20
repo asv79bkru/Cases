@@ -22,6 +22,9 @@ return [
     ],
     'presentations' => [
         'folder_path' => $env('PRESENTATIONS_FOLDER_PATH', __DIR__ . '/../presentations'),
+        // presentations/ дополнительно отдаётся по HTTP (docker/entrypoint.sh, php -S :8080) —
+        // прямая ссылка на исходный файл в сообщении команды «кейсы» вместо/вместе с вложением.
+        'http_base_url' => $env('PRESENTATIONS_HTTP_BASE_URL', 'http://vm-docker-ba.simbirsoft:8080'),
     ],
     'catalog' => [
         'storage_path' => $env('CATALOG_STORAGE_PATH', __DIR__ . '/../storage/catalog/catalog.sqlite'),
