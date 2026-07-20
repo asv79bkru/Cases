@@ -78,9 +78,14 @@ class CasesCommand implements CommandInterface
     }
 
     /**
-     * Отправляет исходные презентации целиком (без изменений — сборка отключена, см. класс),
-     * по одной на каждый source_file_id, встречающийся в найденных кейсах, с подписью,
-     * какие слайды из неё нужно оставить.
+     * Присылает по одной ссылке на каждый source_file_id, встречающийся в найденных кейсах,
+     * с подписью, какие слайды из неё нужно оставить.
+     *
+     * Раньше файл отправлялся как вложение через VkTeamsClient::sendFile — но у собственного
+     * nginx VK Teams есть лимит на размер тела запроса, и на реальном ~70МБ файле это давало
+     * "413 Request Entity Too Large" ещё до бота. Ограничение на стороне самого API, обойти
+     * его нельзя — поэтому вместо вложения отдаём прямую HTTP-ссылку (presentations/ на :8080,
+     * см. docker/entrypoint.sh), которая размер не ограничивает.
      *
      * @param array<int, array{source_file_id: string, slide_number: int}> $rows
      */
@@ -93,19 +98,17 @@ class CasesCommand implements CommandInterface
 
         foreach ($slidesByFile as $sourceFileId => $slideNumbers) {
             sort($slideNumbers);
-            $caption = "{$sourceFileId} — оставьте слайды: " . implode(', ', $slideNumbers);
 
             try {
-                $path = $this->presentations->getFilePath($sourceFileId);
-                $this->vkTeamsClient->sendFile($chatId, $path, $caption);
+                $url = $this->presentations->getPublicUrl($sourceFileId);
                 $this->vkTeamsClient->sendText(
                     $chatId,
-                    "Прямая ссылка на «{$sourceFileId}»: " . $this->presentations->getPublicUrl($sourceFileId)
+                    "{$sourceFileId} — оставьте слайды: " . implode(', ', $slideNumbers) . "\n{$url}"
                 );
             } catch (Throwable $e) {
                 $this->vkTeamsClient->sendText(
                     $chatId,
-                    "Не удалось отправить «{$sourceFileId}»: {$e->getMessage()}"
+                    "Не удалось подготовить ссылку на «{$sourceFileId}»: {$e->getMessage()}"
                 );
             }
         }
@@ -177,7 +180,7 @@ class CasesCommand implements CommandInterface
         ));
 
         return 'Нашёл ' . count($rows) . " кейс(ов) — оставьте эти слайды:\n{$lines}\n\n"
-            . 'Ниже — оригинал(ы) презентации целиком (сборка подборки автоматически пока отключена).';
+            . 'Ниже — ссылка(и) на оригинал(ы) презентации целиком (сборка подборки автоматически пока отключена).';
     }
 
     private function noResultsMessage(): string
