@@ -95,6 +95,11 @@ class VkTeamsClient
             throw new \RuntimeException("VK Teams API returned invalid JSON ({$method}): {$body}");
         }
 
+        if (($decoded['ok'] ?? false) !== true) {
+            $description = $decoded['description'] ?? 'без описания';
+            throw new \RuntimeException("VK Teams API ({$method}) вернул ошибку: {$description}");
+        }
+
         return $decoded;
     }
 }
