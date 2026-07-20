@@ -7,13 +7,11 @@ namespace CasesBot\Bot\Commands;
 use CasesBot\Bot\VkTeamsClient;
 use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\TagTaxonomy;
-use CasesBot\Presentation\PresentationBuilder;
-use CasesBot\Storage\LocalPresentationsClient;
-use Throwable;
 
 /**
- * Команда «кейсы»: поиск по тегам (CatalogRepository::findByTags, §5.1.3) и сборка подборки
- * (PresentationBuilder), отправка файла обратно в чат (§5.1.6 ТЗ).
+ * Команда «кейсы»: поиск по тегам (CatalogRepository::findByTags, §5.1.3) и список найденных
+ * кейсов в чат (§5.1.6 ТЗ). Сборка pptx из найденных слайдов (PresentationBuilder/SlideCloner)
+ * сюда сознательно не подключена — только поиск и список названий.
  *
  * Принимает два вида запроса:
  *  - явный "категория:тег[, категория:тег...]" (как в CLI/заметках/LLM):
@@ -33,8 +31,6 @@ class CasesCommand implements CommandInterface
     public function __construct(
         private VkTeamsClient $vkTeamsClient,
         private CatalogRepository $catalog,
-        private LocalPresentationsClient $presentations,
-        private PresentationBuilder $presentationBuilder,
         private TagTaxonomy $tagTaxonomy,
         private int $maxSlidesPerDeck,
     ) {
@@ -70,26 +66,6 @@ class CasesCommand implements CommandInterface
         }
 
         $this->vkTeamsClient->sendText($chatId, $this->foundCasesMessage($rows));
-
-        try {
-            $slides = array_map(
-                fn (array $row): array => [
-                    'source_path' => $this->presentations->getFilePath($row['source_file_id']),
-                    'slide_number' => $row['slide_number'],
-                ],
-                $rows
-            );
-
-            $topic = implode(', ', array_map(
-                static fn (array $t): string => "{$t['category']}:{$t['tag']}",
-                $tags
-            ));
-
-            $path = $this->presentationBuilder->build($topic, $slides);
-            $this->vkTeamsClient->sendFile($chatId, $path);
-        } catch (Throwable $e) {
-            $this->vkTeamsClient->sendText($chatId, "Не удалось собрать подборку: {$e->getMessage()}");
-        }
     }
 
     private function stripTrigger(string $text): string
@@ -157,7 +133,7 @@ class CasesCommand implements CommandInterface
             $rows
         ));
 
-        return 'Нашёл ' . count($rows) . " кейс(ов):\n{$titles}\n\nСобираю подборку, минуту…";
+        return 'Нашёл ' . count($rows) . " кейс(ов):\n{$titles}";
     }
 
     private function noResultsMessage(): string

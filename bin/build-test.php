@@ -3,9 +3,11 @@
 declare(strict_types=1);
 
 /**
- * Проверка сборки подборки без чат-интеграции — то же самое, что делает команда "кейсы"
- * (src/Bot/Commands/CasesCommand.php: parseQuery() + findByTags() + PresentationBuilder),
- * только без VK Teams.
+ * Автономная проверка сборки pptx (PresentationBuilder/SlideCloner) без чат-интеграции.
+ * Команда "кейсы" в боте (src/Bot/Commands/CasesCommand.php) presentation НЕ собирает —
+ * только ищет и показывает список найденных кейсов. Этот скрипт использует parseQuery()
+ * команды для разбора тегов, а сборку делает сам — как отдельный инструмент для проверки
+ * SlideCloner/PresentationBuilder в изоляции.
  *
  * Запуск: php bin/build-test.php "ритейл"
  *         php bin/build-test.php "technology:1с, industry:ритейл"
@@ -52,11 +54,11 @@ $builder = new PresentationBuilder(
     $config['python']['slide_cloner'],
     $config['storage']['output']
 );
-// VkTeamsClient не используется (никаких sendText/sendFile здесь не вызывается) — нужен только
-// как обязательная зависимость конструктора CasesCommand, чтобы переиспользовать его parseQuery().
+// VkTeamsClient не используется (sendText/sendFile здесь не вызывается) — нужен только как
+// обязательная зависимость конструктора CasesCommand, чтобы переиспользовать его parseQuery().
 $vkTeamsClient = new VkTeamsClient($config['vk_teams']['bot_token'], $config['vk_teams']['api_url']);
 
-$casesCommand = new CasesCommand($vkTeamsClient, $catalog, $presentations, $builder, $tagTaxonomy, $config['max_slides_per_deck']);
+$casesCommand = new CasesCommand($vkTeamsClient, $catalog, $tagTaxonomy, $config['max_slides_per_deck']);
 
 $tags = $casesCommand->parseQuery($argv[1]);
 if ($tags === []) {
