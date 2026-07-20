@@ -24,7 +24,11 @@ COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-interaction --optimize-autoloader --no-scripts
 
 COPY . .
+RUN chmod +x docker/entrypoint.sh
 
 # Секреты (VK_TEAMS_BOT_TOKEN и т.п.) передаются через `docker run --env-file .env`,
 # а не копируются в образ — .env исключён через .dockerignore.
-ENTRYPOINT ["php", "bin/poll.php"]
+# presentations/ дополнительно отдаётся по HTTP на :8080 (см. docker/entrypoint.sh) — прямая
+# ссылка на исходный файл презентации, без прогона через VK Teams sendFile.
+EXPOSE 8080
+ENTRYPOINT ["docker/entrypoint.sh"]
