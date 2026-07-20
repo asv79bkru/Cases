@@ -7,11 +7,18 @@ namespace CasesBot\Bot\Commands;
 use CasesBot\Bot\VkTeamsClient;
 use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\TagTaxonomy;
+use CasesBot\Storage\LocalPresentationsClient;
+use Throwable;
 
 /**
- * Команда «кейсы»: поиск по тегам (CatalogRepository::findByTags, §5.1.3) и список найденных
- * кейсов в чат (§5.1.6 ТЗ). Сборка pptx из найденных слайдов (PresentationBuilder/SlideCloner)
- * сюда сознательно не подключена — только поиск и список названий.
+ * Команда «кейсы»: поиск по тегам (CatalogRepository::findByTags, §5.1.3), список найденных
+ * кейсов с номерами слайдов и скачивание исходной презентации(й) целиком (§5.1.6 ТЗ).
+ *
+ * Сборка нового pptx из найденных слайдов (PresentationBuilder/SlideCloner) сюда сознательно
+ * не подключена — сгенерированные файлы у части пользователей не открывались в PowerPoint,
+ * причина не найдена (структура OOXML при этом проверена и чиста, подозрение на передачу).
+ * Пока эксперт получает оригинал(ы) без изменений — они точно открываются — и номера слайдов,
+ * которые нужно оставить, чтобы собрать подборку вручную.
  *
  * Принимает два вида запроса:
  *  - явный "категория:тег[, категория:тег...]" (как в CLI/заметках/LLM):
@@ -31,6 +38,7 @@ class CasesCommand implements CommandInterface
     public function __construct(
         private VkTeamsClient $vkTeamsClient,
         private CatalogRepository $catalog,
+        private LocalPresentationsClient $presentations,
         private TagTaxonomy $tagTaxonomy,
         private int $maxSlidesPerDeck,
     ) {
@@ -66,6 +74,37 @@ class CasesCommand implements CommandInterface
         }
 
         $this->vkTeamsClient->sendText($chatId, $this->foundCasesMessage($rows));
+        $this->sendSourcePresentations($chatId, $rows);
+    }
+
+    /**
+     * Отправляет исходные презентации целиком (без изменений — сборка отключена, см. класс),
+     * по одной на каждый source_file_id, встречающийся в найденных кейсах, с подписью,
+     * какие слайды из неё нужно оставить.
+     *
+     * @param array<int, array{source_file_id: string, slide_number: int}> $rows
+     */
+    private function sendSourcePresentations(string $chatId, array $rows): void
+    {
+        $slidesByFile = [];
+        foreach ($rows as $row) {
+            $slidesByFile[$row['source_file_id']][] = $row['slide_number'];
+        }
+
+        foreach ($slidesByFile as $sourceFileId => $slideNumbers) {
+            sort($slideNumbers);
+            $caption = "{$sourceFileId} — оставьте слайды: " . implode(', ', $slideNumbers);
+
+            try {
+                $path = $this->presentations->getFilePath($sourceFileId);
+                $this->vkTeamsClient->sendFile($chatId, $path, $caption);
+            } catch (Throwable $e) {
+                $this->vkTeamsClient->sendText(
+                    $chatId,
+                    "Не удалось отправить «{$sourceFileId}»: {$e->getMessage()}"
+                );
+            }
+        }
     }
 
     private function stripTrigger(string $text): string
@@ -125,15 +164,16 @@ class CasesCommand implements CommandInterface
         return array_values($unique);
     }
 
-    /** @param array<int, array{title: ?string}> $rows */
+    /** @param array<int, array{title: ?string, slide_number: int}> $rows */
     private function foundCasesMessage(array $rows): string
     {
-        $titles = implode("\n", array_map(
-            static fn (array $row): string => '— ' . ($row['title'] ?? '(без названия)'),
+        $lines = implode("\n", array_map(
+            static fn (array $row): string => "— слайд {$row['slide_number']}: " . ($row['title'] ?? '(без названия)'),
             $rows
         ));
 
-        return 'Нашёл ' . count($rows) . " кейс(ов):\n{$titles}";
+        return 'Нашёл ' . count($rows) . " кейс(ов) — оставьте эти слайды:\n{$lines}\n\n"
+            . 'Ниже — оригинал(ы) презентации целиком (сборка подборки автоматически пока отключена).';
     }
 
     private function noResultsMessage(): string

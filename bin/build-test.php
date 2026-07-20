@@ -58,7 +58,7 @@ $builder = new PresentationBuilder(
 // обязательная зависимость конструктора CasesCommand, чтобы переиспользовать его parseQuery().
 $vkTeamsClient = new VkTeamsClient($config['vk_teams']['bot_token'], $config['vk_teams']['api_url']);
 
-$casesCommand = new CasesCommand($vkTeamsClient, $catalog, $tagTaxonomy, $config['max_slides_per_deck']);
+$casesCommand = new CasesCommand($vkTeamsClient, $catalog, $presentations, $tagTaxonomy, $config['max_slides_per_deck']);
 
 $tags = $casesCommand->parseQuery($argv[1]);
 if ($tags === []) {
