@@ -30,5 +30,7 @@ RUN chmod +x docker/entrypoint.sh
 # а не копируются в образ — .env исключён через .dockerignore.
 # presentations/ дополнительно отдаётся по HTTP на :8080 (см. docker/entrypoint.sh) — прямая
 # ссылка на исходный файл презентации, без прогона через VK Teams sendFile.
-EXPOSE 8080
+# :8081 — веб-загрузчик презентаций (public/upload.php), защищён HTTP Basic Auth
+# (UPLOAD_USERNAME/UPLOAD_PASSWORD в .env).
+EXPOSE 8080 8081
 ENTRYPOINT ["docker/entrypoint.sh"]

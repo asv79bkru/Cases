@@ -57,4 +57,10 @@ return [
         'logs' => __DIR__ . '/../storage/logs',
     ],
     'max_slides_per_deck' => (int) $env('MAX_SLIDES_PER_DECK', '10'),
+    // Веб-загрузчик презентаций (public/upload.php, :8081) — HTTP Basic Auth, без учётных данных
+    // в .env страница отказывает в доступе (fail closed), а не открывается всем без пароля.
+    'upload' => [
+        'username' => $env('UPLOAD_USERNAME'),
+        'password' => $env('UPLOAD_PASSWORD'),
+    ],
 ];
