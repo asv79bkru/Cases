@@ -38,6 +38,9 @@ class CasesCommand implements CommandInterface
 {
     private const TRIGGER = 'кейсы';
 
+    /** Текст ссылки на исходную презентацию — фиксированный, одинаковый для любого файла. */
+    private const PRESENTATION_LINK_TEXT = 'Экспертиза 1С. Все кейсы.';
+
     public function __construct(
         private VkTeamsClient $vkTeamsClient,
         private CatalogRepository $catalog,
@@ -153,9 +156,12 @@ class CasesCommand implements CommandInterface
 
             try {
                 $url = $this->presentations->getPublicUrl($sourceFileId);
-                $this->vkTeamsClient->sendText(
+                $link = '<a href="' . htmlspecialchars($url, ENT_QUOTES) . '">'
+                    . htmlspecialchars(self::PRESENTATION_LINK_TEXT, ENT_QUOTES) . '</a>';
+                $this->vkTeamsClient->sendHtml(
                     $chatId,
-                    "{$sourceFileId} — оставьте слайды: " . implode(', ', $slideNumbers) . "\n{$url}"
+                    htmlspecialchars($sourceFileId, ENT_QUOTES) . ' — оставьте слайды: '
+                        . implode(', ', $slideNumbers) . "\n{$link}"
                 );
             } catch (Throwable $e) {
                 $this->vkTeamsClient->sendText(

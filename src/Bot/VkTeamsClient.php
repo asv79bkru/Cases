@@ -42,6 +42,21 @@ class VkTeamsClient
         ]);
     }
 
+    /**
+     * Отправляет сообщение с HTML-разметкой (parseMode=HTML) — нужен, чтобы показать ссылку
+     * с человекочитаемым текстом вместо сырого URL (чат подставляет как текст сообщения то,
+     * что пришло в поле text, поэтому обычный sendText с URL внутри показывает сам URL).
+     * Поддерживаются теги вида <a href="...">, <b>, <i> и т.п., см. документацию Bot API.
+     */
+    public function sendHtml(string $chatId, string $html): array
+    {
+        return $this->request('messages/sendText', [
+            'chatId' => $chatId,
+            'text' => $html,
+            'parseMode' => 'HTML',
+        ]);
+    }
+
     /** Отправляет файл (например, собранный pptx) в чат/тред. */
     public function sendFile(string $chatId, string $filePath, ?string $caption = null): array
     {
