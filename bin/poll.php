@@ -19,6 +19,9 @@ use CasesBot\Bot\VkTeamsClient;
 use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\LlmCaseMatcher;
 use CasesBot\Catalog\TagTaxonomy;
+use CasesBot\Presentation\CaseDeckBuilder;
+use CasesBot\Presentation\SlideCloner;
+use CasesBot\Presentation\SlideTextExtractor;
 use CasesBot\Storage\LocalPresentationsClient;
 
 $envPath = __DIR__ . '/../.env';
@@ -60,6 +63,13 @@ if (($llmProviderConfig['api_key'] ?? '') !== '' && ($llmProviderConfig['model']
     $llmCaseMatcher = new LlmCaseMatcher(ProviderFactory::create($llmProviderName, $config['llm']));
 }
 
+$caseDeckBuilder = new CaseDeckBuilder(
+    new SlideTextExtractor($config['python']['bin'], $config['python']['slide_text_extractor'], $config['case_marker']),
+    new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']),
+    $presentations,
+    $config['storage']['output'],
+);
+
 $casesCommand = new CasesCommand(
     $vkTeamsClient,
     $catalog,
@@ -67,6 +77,7 @@ $casesCommand = new CasesCommand(
     $tagTaxonomy,
     $config['max_slides_per_deck'],
     $llmCaseMatcher,
+    $caseDeckBuilder,
 );
 
 $controller = new ChatBotController([$casesCommand]);

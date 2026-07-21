@@ -8,18 +8,23 @@ use CasesBot\Bot\VkTeamsClient;
 use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\LlmCaseMatcher;
 use CasesBot\Catalog\TagTaxonomy;
+use CasesBot\Presentation\CaseDeckBuilder;
 use CasesBot\Storage\LocalPresentationsClient;
 use Throwable;
 
 /**
  * Команда «кейсы»: поиск по тегам (CatalogRepository::findByTags, §5.1.3), список найденных
- * кейсов с номерами слайдов и скачивание исходной презентации(й) целиком (§5.1.6 ТЗ).
+ * кейсов с номерами слайдов и pptx-подборка по каждой затронутой исходной презентации (§5.1.4,
+ * §5.1.6 ТЗ) — все слайды без метки #кейс# (обложка, о компании, контакты) плюс найденные по
+ * запросу кейсы, см. CaseDeckBuilder.
  *
- * Сборка нового pptx из найденных слайдов (PresentationBuilder/SlideCloner) сюда сознательно
- * не подключена — сгенерированные файлы у части пользователей не открывались в PowerPoint,
- * причина не найдена (структура OOXML при этом проверена и чиста, подозрение на передачу).
- * Пока эксперт получает оригинал(ы) без изменений — они точно открываются — и номера слайдов,
- * которые нужно оставить, чтобы собрать подборку вручную.
+ * При настроенном CaseDeckBuilder (опциональная зависимость, см. bin/poll.php) собирает и
+ * отправляет pptx вложением; ссылка на оригинал целиком и номера слайдов отправляются в любом
+ * случае следом (не только если сборка не удалась) — эксперт получает и готовую подборку, и
+ * возможность свериться с исходником/собрать вручную. Ранее автосборка была отключена совсем —
+ * у части пользователей собранные файлы не открывались в PowerPoint, причина не найдена
+ * (структура OOXML при этом проверена и чиста, подозрение на передачу) — пробуем снова:
+ * возможно, дело было в передаче конкретного файла, а не в самой сборке.
  *
  * Принимает простые теги через запятую и/или пробел, без категорий — каждое слово ищется
  * через словарь синонимов (TagTaxonomy) с резервом на прямое совпадение по названию тега
@@ -48,6 +53,7 @@ class CasesCommand implements CommandInterface
         private TagTaxonomy $tagTaxonomy,
         private int $maxSlidesPerDeck,
         private ?LlmCaseMatcher $llmCaseMatcher = null,
+        private ?CaseDeckBuilder $caseDeckBuilder = null,
     ) {
     }
 
@@ -133,14 +139,11 @@ class CasesCommand implements CommandInterface
     }
 
     /**
-     * Присылает по одной ссылке на каждый source_file_id, встречающийся в найденных кейсах,
-     * с подписью, какие слайды из неё нужно оставить.
-     *
-     * Раньше файл отправлялся как вложение через VkTeamsClient::sendFile — но у собственного
-     * nginx VK Teams есть лимит на размер тела запроса, и на реальном ~70МБ файле это давало
-     * "413 Request Entity Too Large" ещё до бота. Ограничение на стороне самого API, обойти
-     * его нельзя — поэтому вместо вложения отдаём прямую HTTP-ссылку (presentations/ на :8080,
-     * см. docker/entrypoint.sh), которая размер не ограничивает.
+     * По каждому source_file_id, встречающемуся в найденных кейсах: пытается собрать и отправить
+     * pptx-подборку (CaseDeckBuilder — все слайды без метки #кейс# плюс найденные по запросу), и
+     * независимо от результата сборки — всегда также ссылку на оригинал презентации целиком и
+     * номера слайдов (sendOriginalLink), чтобы эксперт при желании мог свериться с исходником
+     * или собрать вручную, даже когда pptx-подборка уже пришла.
      *
      * @param array<int, array{source_file_id: string, slide_number: int}> $rows
      */
@@ -154,21 +157,52 @@ class CasesCommand implements CommandInterface
         foreach ($slidesByFile as $sourceFileId => $slideNumbers) {
             sort($slideNumbers);
 
-            try {
-                $url = $this->presentations->getPublicUrl($sourceFileId);
-                $link = '<a href="' . htmlspecialchars($url, ENT_QUOTES) . '">'
-                    . htmlspecialchars(self::PRESENTATION_LINK_TEXT, ENT_QUOTES) . '</a>';
-                $this->vkTeamsClient->sendHtml(
-                    $chatId,
-                    htmlspecialchars($sourceFileId, ENT_QUOTES) . ' — оставьте слайды: '
-                        . implode(', ', $slideNumbers) . "\n{$link}"
-                );
-            } catch (Throwable $e) {
-                $this->vkTeamsClient->sendText(
-                    $chatId,
-                    "Не удалось подготовить ссылку на «{$sourceFileId}»: {$e->getMessage()}"
-                );
-            }
+            $this->trySendDeck($chatId, $sourceFileId, $slideNumbers);
+            $this->sendOriginalLink($chatId, $sourceFileId, $slideNumbers);
+        }
+    }
+
+    /** @param int[] $slideNumbers */
+    private function trySendDeck(string $chatId, string $sourceFileId, array $slideNumbers): void
+    {
+        if ($this->caseDeckBuilder === null) {
+            return;
+        }
+
+        try {
+            $pptxPath = $this->caseDeckBuilder->build($sourceFileId, $slideNumbers);
+            $this->vkTeamsClient->sendFile($chatId, $pptxPath, "{$sourceFileId} — подборка по запросу");
+        } catch (Throwable) {
+            // Сборка pptx не удалась — sendOriginalLink ниже всё равно отдаёт эксперту рабочую
+            // ссылку на оригинал, вместо того чтобы просто промолчать об ошибке.
+        }
+    }
+
+    /**
+     * Раньше файл отправлялся как вложение через VkTeamsClient::sendFile — но у собственного
+     * nginx VK Teams есть лимит на размер тела запроса, и на реальном ~70МБ файле это давало
+     * "413 Request Entity Too Large" ещё до бота. Ограничение на стороне самого API, обойти
+     * его нельзя — поэтому вместо вложения отдаём прямую HTTP-ссылку (presentations/ на :8080,
+     * см. docker/entrypoint.sh), которая размер не ограничивает.
+     *
+     * @param int[] $slideNumbers
+     */
+    private function sendOriginalLink(string $chatId, string $sourceFileId, array $slideNumbers): void
+    {
+        try {
+            $url = $this->presentations->getPublicUrl($sourceFileId);
+            $link = '<a href="' . htmlspecialchars($url, ENT_QUOTES) . '">'
+                . htmlspecialchars(self::PRESENTATION_LINK_TEXT, ENT_QUOTES) . '</a>';
+            $this->vkTeamsClient->sendHtml(
+                $chatId,
+                htmlspecialchars($sourceFileId, ENT_QUOTES) . ' — оставьте слайды: '
+                    . implode(', ', $slideNumbers) . "\n{$link}"
+            );
+        } catch (Throwable $e) {
+            $this->vkTeamsClient->sendText(
+                $chatId,
+                "Не удалось подготовить ссылку на «{$sourceFileId}»: {$e->getMessage()}"
+            );
         }
     }
 
@@ -217,8 +251,11 @@ class CasesCommand implements CommandInterface
             $rows
         ));
 
-        return 'Нашёл ' . count($rows) . " кейс(ов) — оставьте эти слайды:\n{$lines}\n\n"
-            . 'Ниже — ссылка(и) на оригинал(ы) презентации целиком (сборка подборки автоматически пока отключена).';
+        $tail = $this->caseDeckBuilder !== null
+            ? 'Ниже — собранная pptx-подборка с этими слайдами и ссылка на оригинал(ы) презентации целиком.'
+            : 'Ниже — ссылка(и) на оригинал(ы) презентации целиком, оставьте эти слайды вручную.';
+
+        return 'Нашёл ' . count($rows) . " кейс(ов):\n{$lines}\n\n{$tail}";
     }
 
     private function noResultsMessage(): string
