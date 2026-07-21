@@ -6,6 +6,7 @@ namespace CasesBot\Bot\Commands;
 
 use CasesBot\Bot\VkTeamsClient;
 use CasesBot\Catalog\CatalogRepository;
+use CasesBot\Catalog\LlmCaseMatcher;
 use CasesBot\Catalog\TagTaxonomy;
 use CasesBot\Storage\LocalPresentationsClient;
 use Throwable;
@@ -27,6 +28,11 @@ use Throwable;
  *      кейсы производство, 1с
  * Полноценный QueryParser (разбор произвольного свободного текста, §5.1.2) — задел на будущее,
  * пока команда ищет по отдельным словам, а не по смыслу всей фразы.
+ *
+ * Если ни одно слово запроса не совпало ни с одним известным тегом — при настроенном
+ * LlmCaseMatcher (опциональная зависимость, см. bin/poll.php) запрос вместе с текстом всех
+ * кейсов каталога уходит в LLM, которая либо подбирает ближайшие по смыслу кейсы, либо явно
+ * говорит, что подходящих нет (§5.1.7 ТЗ), см. handleUnknownTags().
  */
 class CasesCommand implements CommandInterface
 {
@@ -38,6 +44,7 @@ class CasesCommand implements CommandInterface
         private LocalPresentationsClient $presentations,
         private TagTaxonomy $tagTaxonomy,
         private int $maxSlidesPerDeck,
+        private ?LlmCaseMatcher $llmCaseMatcher = null,
     ) {
     }
 
@@ -48,14 +55,11 @@ class CasesCommand implements CommandInterface
 
     public function handle(string $chatId, string $text): void
     {
-        $tags = $this->parseQuery($this->stripTrigger($text));
+        $query = $this->stripTrigger($text);
+        $tags = $this->parseQuery($query);
 
         if ($tags === []) {
-            $this->vkTeamsClient->sendText(
-                $chatId,
-                "Не нашёл ни одного известного тега в запросе.\n"
-                    . 'Примеры: «кейсы ритейл», «кейсы производство, 1с».'
-            );
+            $this->handleUnknownTags($chatId, $query);
 
             return;
         }
@@ -69,6 +73,59 @@ class CasesCommand implements CommandInterface
         }
 
         $this->vkTeamsClient->sendText($chatId, $this->foundCasesMessage($rows));
+        $this->sendSourcePresentations($chatId, $rows);
+    }
+
+    /**
+     * Ни одно слово запроса не совпало с известным тегом (ни в TagTaxonomy, ни в каталоге).
+     * Без LlmCaseMatcher — прежнее поведение: подсказка с примерами. С ним — фолбэк на LLM
+     * (§5.1.7 ТЗ, задел на будущий QueryParser): в модель уходит запрос целиком и текст всех
+     * видимых кейсов каталога (CatalogRepository::allForMatching, текст уже в cases.content),
+     * она либо подбирает id ближайших по смыслу кейсов, либо сообщает, что подходящих нет.
+     */
+    private function handleUnknownTags(string $chatId, string $query): void
+    {
+        if ($this->llmCaseMatcher === null) {
+            $this->vkTeamsClient->sendText(
+                $chatId,
+                "Не нашёл ни одного известного тега в запросе.\n"
+                    . 'Примеры: «кейсы ритейл», «кейсы производство, 1с».'
+            );
+
+            return;
+        }
+
+        $cases = $this->catalog->allForMatching();
+        if ($cases === []) {
+            $this->vkTeamsClient->sendText($chatId, 'По этому запросу ничего не нашлось. Каталог кейсов пока пуст.');
+
+            return;
+        }
+
+        try {
+            $ids = $this->llmCaseMatcher->match($query, $cases);
+        } catch (Throwable $e) {
+            $this->vkTeamsClient->sendText(
+                $chatId,
+                "Не нашёл ни одного известного тега в запросе, а подбор через LLM не удался: {$e->getMessage()}"
+            );
+
+            return;
+        }
+
+        $rows = $ids !== [] ? $this->catalog->findByIds($ids, $this->maxSlidesPerDeck) : [];
+
+        if ($rows === []) {
+            $this->vkTeamsClient->sendText($chatId, $this->noResultsMessage());
+
+            return;
+        }
+
+        $this->vkTeamsClient->sendText(
+            $chatId,
+            "Не нашёл известных тегов в запросе — вот что подобрала LLM по смыслу:\n\n"
+                . $this->foundCasesMessage($rows)
+        );
         $this->sendSourcePresentations($chatId, $rows);
     }
 

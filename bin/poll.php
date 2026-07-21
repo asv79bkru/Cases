@@ -12,10 +12,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use CasesBot\Api\Providers\ProviderFactory;
 use CasesBot\Bot\ChatBotController;
 use CasesBot\Bot\Commands\CasesCommand;
 use CasesBot\Bot\VkTeamsClient;
 use CasesBot\Catalog\CatalogRepository;
+use CasesBot\Catalog\LlmCaseMatcher;
 use CasesBot\Catalog\TagTaxonomy;
 use CasesBot\Storage\LocalPresentationsClient;
 
@@ -48,7 +50,24 @@ $presentations = new LocalPresentationsClient(
     $config['presentations']['http_base_url'],
 );
 
-$casesCommand = new CasesCommand($vkTeamsClient, $catalog, $presentations, $tagTaxonomy, $config['max_slides_per_deck']);
+// Резерв на случай, когда в запросе нет ни одного известного тега (см. CasesCommand::handleUnknownTags,
+// §5.1.7 ТЗ) — без настроенного провайдера (нет api_key/model в .env) команда просто вернётся
+// к прежнему поведению (подсказка с примерами вместо подбора через LLM).
+$llmCaseMatcher = null;
+$llmProviderName = $config['llm']['provider'];
+$llmProviderConfig = $config['llm'][$llmProviderName] ?? [];
+if (($llmProviderConfig['api_key'] ?? '') !== '' && ($llmProviderConfig['model'] ?? '') !== '') {
+    $llmCaseMatcher = new LlmCaseMatcher(ProviderFactory::create($llmProviderName, $config['llm']));
+}
+
+$casesCommand = new CasesCommand(
+    $vkTeamsClient,
+    $catalog,
+    $presentations,
+    $tagTaxonomy,
+    $config['max_slides_per_deck'],
+    $llmCaseMatcher,
+);
 
 $controller = new ChatBotController([$casesCommand]);
 

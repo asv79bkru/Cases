@@ -160,6 +160,66 @@ class CatalogRepository
     }
 
     /**
+     * Кейсы с заданными id, в том порядке, в котором переданы id (LLM отдаёт их по убыванию
+     * релевантности в LlmCaseMatcher::match) — резерв на случай, когда запрос не совпал ни
+     * с одним известным тегом (§5.1.7 ТЗ).
+     *
+     * @param int[] $ids
+     * @return array<int, array{id: int, source_file_id: string, slide_number: int, title: ?string}>
+     */
+    public function findByIds(array $ids, int $limit = 0): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = [];
+        $params = [];
+        $orderCases = [];
+        foreach (array_values($ids) as $position => $id) {
+            $id = (int) $id;
+            $placeholders[] = ":id{$position}";
+            $params["id{$position}"] = $id;
+            $orderCases[] = "WHEN {$id} THEN {$position}";
+        }
+
+        $sql = 'SELECT c.id, c.source_file_id, c.slide_number, c.title
+                FROM cases c
+                WHERE c.is_hidden = 0 AND c.id IN (' . implode(', ', $placeholders) . ')
+                ORDER BY CASE c.id ' . implode(' ', $orderCases) . ' END';
+
+        if ($limit > 0) {
+            $sql .= ' LIMIT ' . $limit;
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Текст всех видимых кейсов каталога (id, заголовок, содержимое, теги) — источник данных для
+     * LlmCaseMatcher, когда запрос не совпал ни с одним известным тегом. Текст уже лежит в
+     * cases.content с момента индексации, повторно читать презентации не нужно.
+     *
+     * @return array<int, array{id: int, title: ?string, content: ?string, tags: ?string}>
+     */
+    public function allForMatching(): array
+    {
+        $sql = "SELECT c.id, c.title, c.content,
+                       GROUP_CONCAT(t.name, ', ') AS tags
+                FROM cases c
+                LEFT JOIN case_tags ct ON ct.case_id = c.id
+                LEFT JOIN tags t ON t.id = ct.tag_id
+                WHERE c.is_hidden = 0
+                GROUP BY c.id
+                ORDER BY c.id";
+
+        return $this->pdo->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
      * Все теги, реально присвоенные видимым кейсам — подсказка «доступные темы»
      * в сообщении об отсутствии результатов (§5.1.7 ТЗ).
      *
