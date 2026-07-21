@@ -10,7 +10,7 @@ declare(strict_types=1);
  * SlideCloner/PresentationBuilder в изоляции.
  *
  * Запуск: php bin/build-test.php "ритейл"
- *         php bin/build-test.php "technology:1с, industry:ритейл"
+ *         php bin/build-test.php "производство, 1с"
  */
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -40,7 +40,7 @@ if (is_file($envPath)) {
 $config = require __DIR__ . '/../config/config.php';
 
 if (!isset($argv[1])) {
-    fwrite(STDERR, "Использование: php bin/build-test.php \"ритейл\" (или \"категория:тег[, ...]\")\n");
+    fwrite(STDERR, "Использование: php bin/build-test.php \"ритейл[, тег...]\"\n");
     exit(1);
 }
 
@@ -62,8 +62,7 @@ $casesCommand = new CasesCommand($vkTeamsClient, $catalog, $presentations, $tagT
 
 $tags = $casesCommand->parseQuery($argv[1]);
 if ($tags === []) {
-    fwrite(STDERR, "Не разобрано ни одного тега из «{$argv[1]}» "
-        . '(допустимые категории: ' . implode(', ', TagTaxonomy::VALID_CATEGORIES) . ")\n");
+    fwrite(STDERR, "Не разобрано ни одного тега из «{$argv[1]}».\n");
     exit(1);
 }
 

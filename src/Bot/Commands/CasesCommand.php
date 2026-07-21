@@ -20,14 +20,11 @@ use Throwable;
  * Пока эксперт получает оригинал(ы) без изменений — они точно открываются — и номера слайдов,
  * которые нужно оставить, чтобы собрать подборку вручную.
  *
- * Принимает два вида запроса:
- *  - явный "категория:тег[, категория:тег...]" (как в CLI/заметках/LLM):
- *      кейсы technology:1с, industry:ритейл
- *  - просто слово (или несколько через запятую/пробел) без категории — ищется среди тегов
- *    во ВСЕХ категориях сразу, через словарь синонимов (TagTaxonomy) с резервом на прямое
- *    совпадение по названию тега в базе:
+ * Принимает простые теги через запятую и/или пробел, без категорий — каждое слово ищется
+ * через словарь синонимов (TagTaxonomy) с резервом на прямое совпадение по названию тега
+ * в базе (CatalogRepository::findTagsByName):
  *      кейсы ритейл
- *      кейсы производство
+ *      кейсы производство, 1с
  * Полноценный QueryParser (разбор произвольного свободного текста, §5.1.2) — задел на будущее,
  * пока команда ищет по отдельным словам, а не по смыслу всей фразы.
  */
@@ -57,9 +54,7 @@ class CasesCommand implements CommandInterface
             $this->vkTeamsClient->sendText(
                 $chatId,
                 "Не нашёл ни одного известного тега в запросе.\n"
-                    . 'Примеры: «кейсы ритейл», «кейсы производство», '
-                    . 'или явно «кейсы technology:1с, industry:ритейл» '
-                    . '(категории: ' . implode(', ', TagTaxonomy::VALID_CATEGORIES) . ').'
+                    . 'Примеры: «кейсы ритейл», «кейсы производство, 1с».'
             );
 
             return;
@@ -122,53 +117,33 @@ class CasesCommand implements CommandInterface
     }
 
     /**
-     * Части, разделённые запятой, могут быть явным "категория:тег" (тогда категория уже известна)
-     * либо просто словом/несколькими словами через пробел — каждое слово ищется отдельно во всех
-     * категориях сразу (TagTaxonomy::normalizeInAnyCategory, с резервом на CatalogRepository::findTagsByName
-     * для тегов, которых ещё нет в config/tags.php). Дубли по (категория, тег) схлопываются.
+     * Разбивает запрос на отдельные слова (через запятую/перевод строки/пробел) и приводит
+     * каждое к каноническому тегу через словарь синонимов (TagTaxonomy::normalize), с резервом
+     * на прямое совпадение по названию тега в базе (CatalogRepository::findTagsByName) для
+     * тегов, которых ещё нет в config/tags.php. Слово, не найденное ни там, ни там, молча
+     * пропускается. Дубли схлопываются.
      *
-     * @return array<int, array{category: string, tag: string}>
+     * @return string[]
      */
     public function parseQuery(string $query): array
     {
         $tags = [];
 
         foreach (preg_split('/[,\n]+/u', $query) as $part) {
-            $part = trim($part);
-            if ($part === '') {
-                continue;
-            }
-
-            if (str_contains($part, ':')) {
-                foreach (TagTaxonomy::parseTagList($part) as $pair) {
-                    $canonical = $this->tagTaxonomy->normalize($pair['category'], $pair['tag']) ?? $pair['tag'];
-                    $tags[] = ['category' => $pair['category'], 'tag' => $canonical];
-                }
-
-                continue;
-            }
-
-            foreach (preg_split('/\s+/u', $part) as $word) {
+            foreach (preg_split('/\s+/u', trim($part)) as $word) {
                 $word = trim($word);
                 if ($word === '') {
                     continue;
                 }
 
-                $found = $this->tagTaxonomy->normalizeInAnyCategory($word);
-                if ($found === []) {
-                    $found = $this->catalog->findTagsByName($word);
+                $found = $this->tagTaxonomy->normalize($word) ?? $this->catalog->findTagsByName($word);
+                if ($found !== null) {
+                    $tags[mb_strtolower($found)] = $found;
                 }
-
-                array_push($tags, ...$found);
             }
         }
 
-        $unique = [];
-        foreach ($tags as $tag) {
-            $unique["{$tag['category']}:{$tag['tag']}"] = $tag;
-        }
-
-        return array_values($unique);
+        return array_values($tags);
     }
 
     /** @param array<int, array{title: ?string, slide_number: int}> $rows */
@@ -190,11 +165,6 @@ class CasesCommand implements CommandInterface
             return 'По этому запросу ничего не нашлось. Каталог кейсов пока пуст.';
         }
 
-        $list = implode(', ', array_map(
-            static fn (array $t): string => "{$t['category']}:{$t['tag']}",
-            $available
-        ));
-
-        return "По этому запросу ничего не нашлось.\nДоступные темы: {$list}";
+        return "По этому запросу ничего не нашлось.\nДоступные темы: " . implode(', ', $available);
     }
 }

@@ -35,11 +35,8 @@ CREATE INDEX IF NOT EXISTS idx_case_images_case_id ON case_images (case_id);
 -- Справочник тегов. Канонические имена и синонимы поддерживаются в config/tags.php (TagTaxonomy);
 -- здесь хранятся только канонические теги, реально присвоенные кейсам.
 CREATE TABLE IF NOT EXISTS tags (
-    id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT    NOT NULL CHECK (category IN ('industry', 'product', 'technology', 'client')),
-    name     TEXT    NOT NULL,                       -- канонический тег (после нормализации синонимов)
-
-    UNIQUE (category, name)
+    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT    NOT NULL UNIQUE                      -- канонический тег (после нормализации синонимов)
 );
 
 -- Многие-ко-многим: теги, подтверждённые экспертом для конкретного кейса при индексации.

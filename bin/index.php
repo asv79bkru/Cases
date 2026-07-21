@@ -70,14 +70,11 @@ $indexer->run(static function (string $fileName, array $slide, array $suggested)
     $preview = mb_substr(str_replace("\n", ' / ', $slide['text']), 0, 200);
     fwrite(STDOUT, "Текст: {$preview}\n");
 
-    $suggestedText = implode(', ', array_map(
-        static fn (array $t): string => "{$t['category']}:{$t['tag']}",
-        $suggested
-    ));
+    $suggestedText = implode(', ', $suggested);
     fwrite(STDOUT, 'Предложенные теги: ' . ($suggestedText !== '' ? $suggestedText : '(нет)') . "\n");
 
     fwrite(STDOUT, "Теги [Enter — принять предложенные, skip — пропустить слайд, "
-        . "или свои через запятую вида категория:тег]: ");
+        . "или свои через запятую]: ");
     $line = trim((string) fgets(STDIN));
 
     if (strtolower($line) === 'skip') {
@@ -86,26 +83,7 @@ $indexer->run(static function (string $fileName, array $slide, array $suggested)
 
     $tags = $suggested;
     if ($line !== '') {
-        $tags = [];
-        foreach (explode(',', $line) as $pair) {
-            [$category, $tag] = array_pad(explode(':', trim($pair), 2), 2, null);
-            $category = $category !== null ? trim($category) : null;
-            $tag = $tag !== null ? trim($tag) : null;
-
-            if ($category === null || $tag === null || $tag === '') {
-                continue;
-            }
-            if (!in_array($category, TagTaxonomy::VALID_CATEGORIES, true)) {
-                fwrite(
-                    STDOUT,
-                    "Пропущено «{$category}:{$tag}»: неизвестная категория "
-                        . '(допустимо: ' . implode(', ', TagTaxonomy::VALID_CATEGORIES) . ")\n"
-                );
-                continue;
-            }
-
-            $tags[] = ['category' => $category, 'tag' => $tag];
-        }
+        $tags = TagTaxonomy::parseTagList($line);
     }
 
     fwrite(STDOUT, 'Ссылка на сайт [необязательно, Enter — пропустить]: ');

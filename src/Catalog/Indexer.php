@@ -36,7 +36,7 @@ class Indexer
      * и возвращает ['tags' => ..., 'site_url' => ...] для сохранения, либо null, чтобы пропустить слайд —
      * так вызывающий код (CLI) решает, как именно спросить подтверждение у эксперта.
      *
-     * @param callable(string, array{slide_number:int,title:string,text:string}, array<int,array{category:string,tag:string}>): (array{tags: array<int,array{category:string,tag:string}>, site_url: ?string}|null) $prompt
+     * @param callable(string, array{slide_number:int,title:string,text:string}, string[]): (array{tags: string[], site_url: ?string}|null) $prompt
      * @param ?callable(string): void $onLlmError Вызывается, если LLM недоступна/вернула ошибку — индексация продолжается без неё.
      */
     public function run(callable $prompt, ?callable $onLlmError = null): void
@@ -76,7 +76,7 @@ class Indexer
     /**
      * @param array{title:string, text:string, notes:string} $slide
      * @param ?callable(string): void $onLlmError
-     * @return array<int, array{category: string, tag: string}>
+     * @return string[]
      */
     private function collectSuggestedTags(array $slide, ?callable $onLlmError): array
     {
@@ -107,12 +107,15 @@ class Indexer
         return $withoutMarker !== '' ? TagTaxonomy::parseTagList($withoutMarker) : [];
     }
 
-    /** @param array<int, array{category: string, tag: string}> $tags */
+    /**
+     * @param string[] $tags
+     * @return string[]
+     */
     private function dedupeTags(array $tags): array
     {
         $unique = [];
         foreach ($tags as $tag) {
-            $unique["{$tag['category']}:{$tag['tag']}"] = $tag;
+            $unique[mb_strtolower($tag)] = $tag;
         }
 
         return array_values($unique);

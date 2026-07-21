@@ -59,7 +59,7 @@ class CatalogRepository
 
         $this->pdo->prepare('DELETE FROM case_tags WHERE case_id = :case_id')->execute(['case_id' => $caseId]);
         foreach ($case->tags as $tag) {
-            $tagId = $this->findOrCreateTag($tag['category'], $tag['tag']);
+            $tagId = $this->findOrCreateTag($tag);
             $this->pdo
                 ->prepare('INSERT OR IGNORE INTO case_tags (case_id, tag_id) VALUES (:case_id, :tag_id)')
                 ->execute(['case_id' => $caseId, 'tag_id' => $tagId]);
@@ -75,18 +75,18 @@ class CatalogRepository
         return $caseId;
     }
 
-    private function findOrCreateTag(string $category, string $name): int
+    private function findOrCreateTag(string $name): int
     {
-        $select = $this->pdo->prepare('SELECT id FROM tags WHERE category = :category AND name = :name');
-        $select->execute(['category' => $category, 'name' => $name]);
+        $select = $this->pdo->prepare('SELECT id FROM tags WHERE name = :name');
+        $select->execute(['name' => $name]);
         $id = $select->fetchColumn();
         if ($id !== false) {
             return (int) $id;
         }
 
         $this->pdo
-            ->prepare('INSERT INTO tags (category, name) VALUES (:category, :name)')
-            ->execute(['category' => $category, 'name' => $name]);
+            ->prepare('INSERT INTO tags (name) VALUES (:name)')
+            ->execute(['name' => $name]);
 
         return (int) $this->pdo->lastInsertId();
     }
@@ -99,7 +99,7 @@ class CatalogRepository
     public function all(): array
     {
         $sql = "SELECT c.id, c.source_file_name, c.slide_number, c.title, c.content, c.site_url,
-                       GROUP_CONCAT(t.category || ':' || t.name, ', ') AS tags,
+                       GROUP_CONCAT(t.name, ', ') AS tags,
                        (SELECT GROUP_CONCAT(ci.file_path, ', ') FROM case_images ci WHERE ci.case_id = c.id) AS images
                 FROM cases c
                 LEFT JOIN case_tags ct ON ct.case_id = c.id
@@ -116,16 +116,16 @@ class CatalogRepository
      *
      * @return array<int, array{id: int, source_file_id: string, slide_number: int, title: ?string}>
      */
-    public function findByTag(string $category, string $tag): array
+    public function findByTag(string $tag): array
     {
-        return $this->findByTags([['category' => $category, 'tag' => $tag]]);
+        return $this->findByTags([$tag]);
     }
 
     /**
      * Ищет и ранжирует кейсы по совпавшим тегам: сначала — кейсы с бо́льшим числом совпадений
      * (§5.1.3 ТЗ). Кейс попадает в выдачу, если совпал хотя бы один тег из $tags.
      *
-     * @param array<int, array{category: string, tag: string}> $tags
+     * @param string[] $tags
      * @return array<int, array{id: int, source_file_id: string, slide_number: int, title: ?string, match_count: int}>
      */
     public function findByTags(array $tags, int $limit = 0): array
@@ -134,19 +134,18 @@ class CatalogRepository
             return [];
         }
 
-        $conditions = [];
+        $placeholders = [];
         $params = [];
         foreach ($tags as $i => $tag) {
-            $conditions[] = "(t.category = :category{$i} AND t.name = :tag{$i})";
-            $params["category{$i}"] = $tag['category'];
-            $params["tag{$i}"] = $tag['tag'];
+            $placeholders[] = ":tag{$i}";
+            $params["tag{$i}"] = $tag;
         }
 
         $sql = 'SELECT c.id, c.source_file_id, c.slide_number, c.title, COUNT(*) AS match_count
                 FROM cases c
                 JOIN case_tags ct ON ct.case_id = c.id
                 JOIN tags t ON t.id = ct.tag_id
-                WHERE c.is_hidden = 0 AND (' . implode(' OR ', $conditions) . ')
+                WHERE c.is_hidden = 0 AND t.name IN (' . implode(', ', $placeholders) . ')
                 GROUP BY c.id
                 ORDER BY match_count DESC, c.id ASC';
 
@@ -164,31 +163,31 @@ class CatalogRepository
      * Все теги, реально присвоенные видимым кейсам — подсказка «доступные темы»
      * в сообщении об отсутствии результатов (§5.1.7 ТЗ).
      *
-     * @return array<int, array{category: string, tag: string}>
+     * @return string[]
      */
     public function allTags(): array
     {
-        $sql = "SELECT DISTINCT t.category, t.name AS tag
+        $sql = "SELECT DISTINCT t.name
                 FROM tags t
                 JOIN case_tags ct ON ct.tag_id = t.id
                 JOIN cases c ON c.id = ct.case_id
                 WHERE c.is_hidden = 0
-                ORDER BY t.category, t.name";
+                ORDER BY t.name";
 
-        return $this->pdo->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
+        return $this->pdo->query($sql)->fetchAll(\PDO::FETCH_COLUMN);
     }
 
     /**
-     * Тег по точному имени в любой категории — резерв для слов, которых ещё нет в config/tags.php,
-     * но которые уже есть как канонический тег в каталоге (например, добавленные LLM при индексации).
-     *
-     * @return array<int, array{category: string, tag: string}>
+     * Тег по точному имени — резерв для слов, которых ещё нет в config/tags.php, но которые уже
+     * есть как канонический тег в каталоге (например, добавленные LLM при индексации).
      */
-    public function findTagsByName(string $name): array
+    public function findTagsByName(string $name): ?string
     {
-        $stmt = $this->pdo->prepare('SELECT category, name AS tag FROM tags WHERE LOWER(name) = LOWER(:name)');
+        $stmt = $this->pdo->prepare('SELECT name FROM tags WHERE LOWER(name) = LOWER(:name)');
         $stmt->execute(['name' => trim($name)]);
 
-        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $found = $stmt->fetchColumn();
+
+        return $found !== false ? $found : null;
     }
 }
