@@ -238,5 +238,8 @@ $files = $presentations->listPresentations();
 <?php endforeach; ?>
 </table>
 
+<h2>Исходник презентации, в который вносим правки:</h2>
+<a href="https://docs.google.com/presentation/d/1tZ_CMsn_hxzeL-ActyXWuFlTA_ZjONZ2Cewmz8UgbaA/edit?slide=id.g3d9787e8b57_0_7#slide=id.g3d9787e8b57_0_7">Открыть в Google Slides</a>
+
 </body>
 </html>
