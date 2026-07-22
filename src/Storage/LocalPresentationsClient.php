@@ -18,9 +18,9 @@ class LocalPresentationsClient
     }
 
     /**
-     * Презентации (.pptx) в папке: id (имя файла), имя, дата изменения.
+     * Презентации (.pptx) в папке: id (имя файла), имя, дата изменения, размер в байтах.
      *
-     * @return array<int, array{id: string, name: string, modifiedTime: string}>
+     * @return array<int, array{id: string, name: string, modifiedTime: string, size: int}>
      */
     public function listPresentations(): array
     {
@@ -33,10 +33,12 @@ class LocalPresentationsClient
             }
 
             $mtime = filemtime($path);
+            $size = filesize($path);
             $files[] = [
                 'id' => basename($path),
                 'name' => basename($path),
                 'modifiedTime' => date(DATE_ATOM, $mtime !== false ? $mtime : time()),
+                'size' => $size !== false ? $size : 0,
             ];
         }
 
@@ -54,6 +56,16 @@ class LocalPresentationsClient
         }
 
         return $path;
+    }
+
+    /** Удаляет презентацию по id (имени файла из listPresentations()). */
+    public function deleteFile(string $id): void
+    {
+        $path = $this->getFilePath($id);
+
+        if (!unlink($path)) {
+            throw new \RuntimeException("Не удалось удалить презентацию: {$id}");
+        }
     }
 
     /** Прямая HTTP-ссылка на файл (см. docker/entrypoint.sh — presentations/ отдаётся на :8080). */

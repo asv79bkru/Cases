@@ -141,12 +141,41 @@ function handleReindex(array $config): array
     return ['ok' => true, 'message' => $message];
 }
 
+/** @return array{ok: bool, message: string} */
+function handleDelete(array $config): array
+{
+    $presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
+    $id = basename($_POST['file'] ?? '');
+
+    if ($id === '') {
+        return ['ok' => false, 'message' => 'Файл не указан.'];
+    }
+
+    try {
+        $presentations->deleteFile($id);
+    } catch (\Throwable $e) {
+        return ['ok' => false, 'message' => "Не удалось удалить «{$id}»: " . $e->getMessage()];
+    }
+
+    return ['ok' => true, 'message' => "Презентация «{$id}» удалена."];
+}
+
+function formatFileSize(int $bytes): string
+{
+    if ($bytes >= 1024 * 1024) {
+        return number_format($bytes / (1024 * 1024), 1, ',', ' ') . ' МБ';
+    }
+
+    return number_format($bytes / 1024, 1, ',', ' ') . ' КБ';
+}
+
 $result = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $result = match ($action) {
         'upload' => handleUpload($config),
         'reindex' => handleReindex($config),
+        'delete' => handleDelete($config),
         default => ['ok' => false, 'message' => 'Неизвестное действие.'],
     };
 }
@@ -167,7 +196,9 @@ $files = $presentations->listPresentations();
   .result.error { background: #fbeaea; border: 1px solid #e3b6b6; }
   table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
   th, td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  td form { margin: 0; padding: 0; border: none; }
   button { padding: 0.5rem 1rem; cursor: pointer; }
+  td button { padding: 0.2rem 0.6rem; font-size: 0.85rem; }
 </style>
 </head>
 <body>
@@ -191,9 +222,19 @@ $files = $presentations->listPresentations();
 
 <h2>Презентации на сервере</h2>
 <table>
-<tr><th>Файл</th><th>Изменён</th></tr>
+<tr><th>Файл</th><th>Размер</th><th>Изменён</th><th></th></tr>
 <?php foreach ($files as $file): ?>
-<tr><td><?= htmlspecialchars($file['name'], ENT_QUOTES) ?></td><td><?= htmlspecialchars($file['modifiedTime'], ENT_QUOTES) ?></td></tr>
+<tr>
+  <td><?= htmlspecialchars($file['name'], ENT_QUOTES) ?></td>
+  <td><?= htmlspecialchars(formatFileSize($file['size']), ENT_QUOTES) ?></td>
+  <td><?= htmlspecialchars($file['modifiedTime'], ENT_QUOTES) ?></td>
+  <td>
+    <form method="post" onsubmit="return confirm('Удалить презентацию «<?= htmlspecialchars($file['name'], ENT_QUOTES) ?>»?');">
+      <input type="hidden" name="file" value="<?= htmlspecialchars($file['name'], ENT_QUOTES) ?>">
+      <button type="submit" name="action" value="delete">Удалить</button>
+    </form>
+  </td>
+</tr>
 <?php endforeach; ?>
 </table>
 
