@@ -75,6 +75,17 @@ class CatalogRepository
         return $caseId;
     }
 
+    /**
+     * Удаляет все кейсы (и связанные case_tags/case_images через ON DELETE CASCADE) —
+     * используется перед автоматической переиндексацией, чтобы таблица всегда отражала
+     * ровно то, что сейчас лежит в presentations/, без хвостов от удалённых/переименованных
+     * файлов (см. Indexer::runAutomatic).
+     */
+    public function clearAll(): void
+    {
+        $this->pdo->exec('DELETE FROM cases');
+    }
+
     private function findOrCreateTag(string $name): int
     {
         $select = $this->pdo->prepare('SELECT id FROM tags WHERE name = :name');

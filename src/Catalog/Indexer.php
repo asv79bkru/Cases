@@ -83,11 +83,19 @@ class Indexer
      * (public/upload.php) для кнопки «Запустить переиндексацию» — в отличие от run(), не требует
      * интерактивного ввода, поэтому пригоден для вызова из HTTP-запроса.
      *
+     * Перед обходом презентаций таблица cases полностью очищается (CatalogRepository::clearAll)
+     * и собирается заново только из файлов, реально лежащих сейчас в presentations/ — иначе
+     * кейсы удалённой/переименованной презентации остаются в базе навсегда (upsert по
+     * source_file_id+slide_number не удаляет строки для файлов, которых больше нет) и приводят
+     * к "Презентация не найдена" при попытке отдать по ним ссылку.
+     *
      * @param ?callable(string): void $onLlmError Вызывается, если LLM недоступна/вернула ошибку.
      * @return array<int, array{file: string, slide: int, title: string, tags: string[]}>
      */
     public function runAutomatic(?callable $onLlmError = null): array
     {
+        $this->catalog->clearAll();
+
         $indexed = [];
 
         $this->run(
