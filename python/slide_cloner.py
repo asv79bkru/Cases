@@ -30,7 +30,6 @@ from lxml import etree
 from pptx import Presentation
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.opc.package import PartFactory
-from pptx.opc.packuri import PackURI
 from pptx.oxml.ns import qn
 
 # Заметки слайда не копируются — служебные пометки эксперта не для клиента.
@@ -61,30 +60,7 @@ def remap_r_attrs(element, id_map):
                 el.set(key, id_map[old])
 
 
-def reserve_partname(template, used_partnames):
-    """Следующее свободное имя части по шаблону ("/ppt/slideLayouts/slideLayout%d.xml") —
-    аналог dest_package.next_partname(), но без обращения к dest_package.iter_parts().
-
-    dest_package.next_partname() считает имя "занятым" только если часть с ним достижима
-    по графу связей (обход из корня пакета), а copy_part_and_deps добавляет новую часть в
-    cache ДО того, как она к чему-либо привязана — relate_to родителя происходит только
-    после разворачивания рекурсии (см. докстрок ниже). Из-за этого при копировании master'а,
-    у которого несколько layout'ов (не только тот, что использует текущий слайд), второй и
-    последующие layout'ы копируются, пока первый ещё не подключён к графу, и next_partname()
-    выдаёт для них то же самое имя повторно — на выходе два разных part с одинаковым именем
-    в архиве (PowerPoint потом не может прочесть один из них и молча удаляет при открытии).
-    used_partnames ведётся вручную и не зависит от текущей связности графа.
-    """
-    n = 1
-    while True:
-        candidate = template % n
-        if candidate not in used_partnames:
-            used_partnames.add(candidate)
-            return PackURI(candidate)
-        n += 1
-
-
-def copy_part_and_deps(source_part, dest_package, cache, used_partnames):
+def copy_part_and_deps(source_part, dest_package, cache):
     """Копирует source_part и всё, от чего он (рекурсивно) зависит, в dest_package.
 
     Возвращает соответствующую часть в dest_package. Повторные вызовы для уже
@@ -95,7 +71,7 @@ def copy_part_and_deps(source_part, dest_package, cache, used_partnames):
     if cache_key in cache:
         return cache[cache_key]
 
-    new_partname = reserve_partname(partname_template(source_part.partname), used_partnames)
+    new_partname = dest_package.next_partname(partname_template(source_part.partname))
     new_part = PartFactory(new_partname, source_part.content_type, dest_package, source_part.blob)
     cache[cache_key] = new_part  # до рекурсии — на случай циклических ссылок
 
@@ -106,7 +82,7 @@ def copy_part_and_deps(source_part, dest_package, cache, used_partnames):
         if rel.is_external:
             id_map[rId] = new_part.relate_to(rel.target_ref, rel.reltype, is_external=True)
         else:
-            new_target = copy_part_and_deps(rel.target_part, dest_package, cache, used_partnames)
+            new_target = copy_part_and_deps(rel.target_part, dest_package, cache)
             id_map[rId] = new_part.relate_to(new_target, rel.reltype)
 
     if id_map and hasattr(new_part, "_element"):
@@ -142,33 +118,10 @@ def register_master(dest_prs, dest_package, source_master_part, cache, registere
     el.set(qn("r:id"), rId)
 
 
-def strip_default_template_parts(dest_prs):
-    """Presentation() (пустой шаблон python-pptx) несёт свой собственный дефолтный
-    slideMaster (с ~11 стандартными layout'ами Office Theme и темой) и printerSettings —
-    ни то, ни другое реальным слайдам не нужно: слайды всегда используют master,
-    скопированный из исходного файла (register_master), а не этот дефолтный.
-
-    printerSettings1.bin — это ссылка на настройки конкретного принтера с машины,
-    на которой собирался сам python-pptx, а не наш контент; PowerPoint не может её
-    прочитать и на открытии молча удаляет ("не удалось прочитать часть контента"),
-    отсюда запрос на восстановление. Отвязываем эти relationship'ы от presentation.xml
-    до добавления реального контента — тогда неиспользуемые части (master, layouts,
-    theme, printerSettings) становятся недостижимы и save() их просто не запишет."""
-    part = dest_prs.part
-    for rId, rel in list(part.rels.items()):
-        if rel.reltype in (RT.SLIDE_MASTER, RT.PRINTER_SETTINGS, RT.THEME):
-            part.drop_rel(rId)
-
-    sldMasterIdLst = dest_prs._element.get_or_add_sldMasterIdLst()
-    sldMasterIdLst.getparent().remove(sldMasterIdLst)
-
-
 def clone_slides(slides_spec, output_path):
     dest_prs = Presentation()
-    strip_default_template_parts(dest_prs)
     dest_package = dest_prs.part.package
     cache = {}
-    used_partnames = {str(p.partname) for p in dest_package.iter_parts()}
     registered_masters = set()
     source_cache = {}
     size_set = False
@@ -191,7 +144,7 @@ def clone_slides(slides_spec, output_path):
         source_layout_part = source_slide_part.part_related_by(RT.SLIDE_LAYOUT)
         source_master_part = source_layout_part.part_related_by(RT.SLIDE_MASTER)
 
-        new_slide_part = copy_part_and_deps(source_slide_part, dest_package, cache, used_partnames)
+        new_slide_part = copy_part_and_deps(source_slide_part, dest_package, cache)
         register_master(dest_prs, dest_package, source_master_part, cache, registered_masters)
 
         rId = dest_prs.part.relate_to(new_slide_part, RT.SLIDE)
