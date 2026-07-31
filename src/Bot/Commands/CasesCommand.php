@@ -171,10 +171,22 @@ class CasesCommand implements CommandInterface
 
         try {
             $pptxPath = $this->caseDeckBuilder->build($sourceFileId, $slideNumbers);
-            $this->vkTeamsClient->sendFile($chatId, $pptxPath, "{$sourceFileId} — подборка по запросу");
         } catch (Throwable) {
             // Сборка pptx не удалась — sendOriginalLink ниже всё равно отдаёт эксперту рабочую
             // ссылку на оригинал, вместо того чтобы просто промолчать об ошибке.
+            return;
+        }
+
+        try {
+            $this->vkTeamsClient->sendFile($chatId, $pptxPath, "{$sourceFileId} — подборка по запросу");
+        } catch (Throwable) {
+            // см. комментарий выше — sendOriginalLink всё равно отдаст ссылку на оригинал.
+        } finally {
+            // Файл одноразовый — sendFile() уже передал его байты VK Teams в теле запроса,
+            // хранить копию на сервере дальше незачем (storage/output иначе растёт без предела).
+            if (is_file($pptxPath)) {
+                unlink($pptxPath);
+            }
         }
     }
 
