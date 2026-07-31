@@ -141,12 +141,28 @@ class Indexer
         return $this->dedupeTags($tags);
     }
 
-    /** Теги, которые эксперт перечислил в заметках после метки кейса (см. SlideTextExtractor::$caseMarker). */
+    /**
+     * Теги, которые эксперт перечислил в заметках докладчика как хэштеги (например
+     * "#erp #производство#") — тегом считается только текст строго между двумя соседними
+     * символами #; текст до первого # и после последнего (в т.ч. метка кейса #кейс#,
+     * см. SlideTextExtractor::$caseMarker, и любые сопроводительные заметки) в теги не попадает.
+     */
     private function notesTags(string $notes): array
     {
-        $withoutMarker = trim((string) preg_replace('/#[^\s#]+#/u', '', $notes));
+        $parts = explode('#', $notes);
+        if (count($parts) < 3) {
+            return [];
+        }
 
-        return $withoutMarker !== '' ? TagTaxonomy::parseTagList($withoutMarker) : [];
+        $tags = [];
+        foreach (array_slice($parts, 1, -1) as $part) {
+            $tag = trim($part);
+            if ($tag !== '' && mb_strtolower($tag) !== 'кейс') {
+                $tags[] = $tag;
+            }
+        }
+
+        return $tags;
     }
 
     /**
