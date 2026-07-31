@@ -15,6 +15,7 @@ require __DIR__ . '/../vendor/autoload.php';
 use CasesBot\Api\Providers\ProviderFactory;
 use CasesBot\Bot\ChatBotController;
 use CasesBot\Bot\Commands\CasesCommand;
+use CasesBot\Bot\Commands\StartCommand;
 use CasesBot\Bot\VkTeamsClient;
 use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\LlmCaseMatcher;
@@ -80,7 +81,9 @@ $casesCommand = new CasesCommand(
     $caseDeckBuilder,
 );
 
-$controller = new ChatBotController([$casesCommand]);
+$startCommand = new StartCommand($vkTeamsClient);
+
+$controller = new ChatBotController([$startCommand, $casesCommand]);
 
 $self = $vkTeamsClient->selfGet();
 fwrite(STDOUT, "Подключено как @{$self['nick']} (userId {$self['userId']})\n");
