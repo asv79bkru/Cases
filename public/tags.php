@@ -346,7 +346,7 @@ function deleteTag(button) {
           <?php if (($case['title'] ?? '') !== ''): ?>
           <div class="muted">Заголовок: <?= htmlspecialchars((string) $case['title'], ENT_QUOTES) ?></div>
           <?php endif; ?>
-          <div class="slide-text" onclick="this.classList.toggle('expanded')"><?= htmlspecialchars((string) ($case['content'] ?? ''), ENT_QUOTES) ?></div>
+          <div class="slide-text"><?= htmlspecialchars((string) ($case['content'] ?? ''), ENT_QUOTES) ?></div>
           <?php if (($case['reviewer_comments'] ?? '') !== ''): ?>
           <div class="reviewer-comments"><b>Комментарии рецензентов</b> <span class="muted">(служебный комментарий, в презентацию клиенту не попадает):</span>
 <?= htmlspecialchars((string) $case['reviewer_comments'], ENT_QUOTES) ?></div>

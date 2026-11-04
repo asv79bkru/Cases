@@ -262,9 +262,9 @@ td .inline { display: flex; gap: 0.4rem; padding: 0; }
 
 .card-body-row img.preview {
   display: block;
-  flex: 0 0 36%;
-  width: 36%;
-  max-height: 210px;
+  flex: 0 0 24%;
+  width: 24%;
+  max-height: 170px;
   object-fit: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -278,11 +278,7 @@ td .inline { display: flex; gap: 0.4rem; padding: 0; }
   background: #fafbfc;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  max-height: 140px;
-  overflow: hidden;
-  cursor: pointer;
 }
-.slide-text.expanded { max-height: none; }
 
 .reviewer-comments {
   margin-top: 0.6rem;
