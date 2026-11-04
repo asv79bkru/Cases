@@ -341,19 +341,23 @@ function deleteTag(button) {
         <?php else: ?><span class="badge dim">не размечено</span><?php endif; ?>
         <?php if ($notCase): ?><span class="badge dim">не кейс</span><?php endif; ?>
       </div>
-      <?php if (($case['title'] ?? '') !== ''): ?>
-      <div class="muted">Заголовок: <?= htmlspecialchars((string) $case['title'], ENT_QUOTES) ?></div>
-      <?php endif; ?>
-      <div class="slide-text" onclick="this.classList.toggle('expanded')"><?= htmlspecialchars((string) ($case['content'] ?? ''), ENT_QUOTES) ?></div>
-      <?php if (($case['reviewer_comments'] ?? '') !== ''): ?>
-      <div class="reviewer-comments"><b>Комментарии рецензентов</b> <span class="muted">(служебный комментарий, в презентацию клиенту не попадает):</span>
+      <div class="card-body-row">
+        <div class="card-body-text">
+          <?php if (($case['title'] ?? '') !== ''): ?>
+          <div class="muted">Заголовок: <?= htmlspecialchars((string) $case['title'], ENT_QUOTES) ?></div>
+          <?php endif; ?>
+          <div class="slide-text" onclick="this.classList.toggle('expanded')"><?= htmlspecialchars((string) ($case['content'] ?? ''), ENT_QUOTES) ?></div>
+          <?php if (($case['reviewer_comments'] ?? '') !== ''): ?>
+          <div class="reviewer-comments"><b>Комментарии рецензентов</b> <span class="muted">(служебный комментарий, в презентацию клиенту не попадает):</span>
 <?= htmlspecialchars((string) $case['reviewer_comments'], ENT_QUOTES) ?></div>
-      <?php endif; ?>
+          <?php endif; ?>
+        </div>
+        <?php if (isset($imageByCase[$caseId])): ?>
+        <img class="preview" src="?action=image&file=<?= urlencode($imageByCase[$caseId]) ?>" alt="превью слайда">
+        <?php endif; ?>
+      </div>
     </div>
     <div class="card-right">
-      <?php if (isset($imageByCase[$caseId])): ?>
-      <img class="preview" src="?action=image&file=<?= urlencode($imageByCase[$caseId]) ?>" alt="превью слайда">
-      <?php endif; ?>
       <div class="tag-zone">
         <h3>Утверждённые теги</h3>
         <div class="chips approved-chips"></div>

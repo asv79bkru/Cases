@@ -253,12 +253,19 @@ td .inline { display: flex; gap: 0.4rem; padding: 0; }
 
 .card-title .badge { margin-left: 0.4rem; }
 
-.card-right img.preview {
+.card-body-row {
+  display: flex;
+  gap: 0.9rem;
+  align-items: flex-start;
+}
+.card-body-text { flex: 1 1 auto; min-width: 0; }
+
+.card-body-row img.preview {
   display: block;
-  width: 100%;
-  max-height: 200px;
+  flex: 0 0 36%;
+  width: 36%;
+  max-height: 210px;
   object-fit: contain;
-  margin-bottom: 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: #fbfcfd;
@@ -340,5 +347,7 @@ td .inline { display: flex; gap: 0.4rem; padding: 0; }
 @media (max-width: 720px) {
   .card { flex-direction: column; gap: 1rem; }
   .card-left, .card-right { flex: 1 1 auto; }
+  .card-body-row { flex-direction: column; }
+  .card-body-row img.preview { flex: 0 0 auto; width: 100%; }
   table.tag-table-scroll { display: block; overflow-x: auto; }
 }
