@@ -315,7 +315,7 @@ function deleteTag(button) {
       <?php endforeach; ?>
     </select>
   </label>
-  <label><input type="checkbox" id="hide-reviewed" checked> скрыть размеченные</label>
+  <label><input type="checkbox" id="hide-reviewed"> скрыть размеченные</label>
   <label><input type="checkbox" id="hide-not-case" checked> скрыть «не кейсы»</label>
 </div>
 
@@ -341,9 +341,6 @@ function deleteTag(button) {
         <?php else: ?><span class="badge dim">не размечено</span><?php endif; ?>
         <?php if ($notCase): ?><span class="badge dim">не кейс</span><?php endif; ?>
       </div>
-      <?php if (isset($imageByCase[$caseId])): ?>
-      <img class="preview" src="?action=image&file=<?= urlencode($imageByCase[$caseId]) ?>" alt="превью слайда">
-      <?php endif; ?>
       <?php if (($case['title'] ?? '') !== ''): ?>
       <div class="muted">Заголовок: <?= htmlspecialchars((string) $case['title'], ENT_QUOTES) ?></div>
       <?php endif; ?>
@@ -354,6 +351,9 @@ function deleteTag(button) {
       <?php endif; ?>
     </div>
     <div class="card-right">
+      <?php if (isset($imageByCase[$caseId])): ?>
+      <img class="preview" src="?action=image&file=<?= urlencode($imageByCase[$caseId]) ?>" alt="превью слайда">
+      <?php endif; ?>
       <div class="tag-zone">
         <h3>Утверждённые теги</h3>
         <div class="chips approved-chips"></div>
