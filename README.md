@@ -7,8 +7,7 @@
 
 ```
 CasesBot/
-├── bin/                # CLI-скрипты: index.php, poll.php (VK Teams), presentations-list.php, build-test.php, deck-test.php, build-public.php, sync.php (Google Drive)
-├── config/             # Config, справочник тегов (TagTaxonomy), .env; config/google/ — ключ сервисного аккаунта Google (не в git)
+├── bin/                # CLI-скрипты: index.php, poll.php (VK Teams), presentations-list.php, build-test.php, deck-test.php, build-public.php, sync.php (Google Drive)├── config/             # Config, справочник тегов (TagTaxonomy), .env; config/google/ — ключ сервисного аккаунта Google (не в git)
 ├── presentations/       # Исходные .pptx — НЕ в git (см. .gitignore), заливаются на сервер отдельно при деплое
 ├── presentations-public/ # «Парадные» копии (PublicCopyBuilder) — без заметок/комментариев, их отдаёт :8080; генерируются, не в git
 ├── public/              # index.php — точка входа для вебхука VK Teams (не используется, бот работает через long polling, см. bin/poll.php); upload.php — веб-загрузчик презентаций (:8081)
@@ -29,7 +28,8 @@ CasesBot/
 ├── tests/
 │   ├── Unit/
 │   └── Fixtures/        # Тестовые pptx для проверки сохранения форматирования
-└── docs/                # Дополнительная документация по мере появления
+└── docs/                # Дополнительная документация по мере появления:
+                          pptx-assembly-lessons.md — уроки сборки PowerPoint (prune vs rebuild, COM-оракул)
 ```
 
 ## Индексация каталога
@@ -122,6 +122,10 @@ PDF как формат вывода не используется — LibreOffi
 падает на старте (баг совместимости, проверено на сервере), поэтому отправляется pptx.
 
 ### Публичные копии без пометок (PublicCopyBuilder)
+
+Полное расследование «PowerPoint не читает пересобранные pptx» и обоснование подхода
+prune vs rebuild — в `docs/pptx-assembly-lessons.md`; COM-оракул проверки открываемости —
+`scripts/pp_open.ps1`.
 
 Бот, кроме вложения-подборки, присылает ссылку на оригинал презентации целиком. Оригинал
 содержит заметки и комментарии — их не должен видеть клиент, поэтому по HTTP на :8080
