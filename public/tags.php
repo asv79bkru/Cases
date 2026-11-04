@@ -219,56 +219,16 @@ foreach ($cases as $case) {
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Разметка кейсов — CasesBot</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem; color: #222; }
-  h1 { font-size: 1.3rem; }
-  h2 { font-size: 1.1rem; }
-  .nav { margin-bottom: 1rem; }
-  .card { display: flex; gap: 1rem; border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin: 0.8rem 0; }
-  .card.not-case { opacity: 0.55; background: #f5f5f5; }
-  .card-left { flex: 1 1 55%; min-width: 0; }
-  .card-right { flex: 1 1 45%; min-width: 0; }
-  .card-left img.preview { max-width: 100%; max-height: 260px; display: block; margin-bottom: 0.5rem; border: 1px solid #eee; }
-  .card-title { font-weight: 600; margin-bottom: 0.3rem; }
-  .slide-text { white-space: pre-wrap; font-size: 0.85rem; max-height: 140px; overflow: hidden; cursor: pointer; }
-  .slide-text.expanded { max-height: none; }
-  .reviewer-comments { margin-top: 0.5rem; padding: 0.5rem; background: #fff8e1; border: 1px solid #f0e0a0; border-radius: 6px; font-size: 0.8rem; white-space: pre-wrap; }
-  .badge { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.5rem; border-radius: 10px; margin-left: 0.4rem; vertical-align: middle; }
-  .badge.ok { background: #eaf7ea; border: 1px solid #b6dfb6; }
-  .badge.warn { background: #fdf1d7; border: 1px solid #ecd28a; }
-  .badge.dim { background: #eee; border: 1px solid #ccc; }
-  .tag-zone h3 { font-size: 0.8rem; margin: 0.5rem 0 0.3rem; color: #555; text-transform: uppercase; }
-  .chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-  .chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.85rem; }
-  .chip.approved { background: #eaf2fb; border: 1px solid #b3cbe8; }
-  .chip.suggested { background: #fdf6e3; border: 1px dashed #d9c07a; }
-  .chip button {
-    border: none; background: none; cursor: pointer;
-    padding: 0.15rem 0.45rem; font-size: 1rem; line-height: 1;
-    min-width: 1.6rem; min-height: 1.6rem;
-  }
-  .chip button.accept { color: #1a7f2e; font-weight: 700; }
-  .chip button.reject { color: #b02a2a; }
-  .add-tag { display: flex; gap: 0.4rem; margin-top: 0.6rem; }
-  .add-tag input { flex: 1; padding: 0.25rem 0.5rem; }
-  .row-actions { margin-top: 0.6rem; display: flex; gap: 0.6rem; align-items: center; font-size: 0.85rem; }
-  .filters { display: flex; gap: 1rem; align-items: center; margin: 0.5rem 0 1rem; font-size: 0.9rem; }
-  select, button { padding: 0.3rem 0.6rem; }
-  button { cursor: pointer; }
-  .muted { color: #777; font-size: 0.85rem; }
-  table { border-collapse: collapse; width: 100%; margin-top: 0.8rem; }
-  th, td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
-  td form, td .inline { display: flex; gap: 0.4rem; margin: 0; padding: 0; }
-  td input[type="text"] { padding: 0.15rem 0.4rem; }
-</style>
+<link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
 
 <h1>Разметка кейсов</h1>
 <div class="nav">
-  <a href="?tab=cases<?= $currentFile !== '' ? '&file=' . urlencode($currentFile) : '' ?>">Разметка</a> ·
-  <a href="?tab=tags">Справочник тегов</a> ·
+  <a href="?tab=cases<?= $currentFile !== '' ? '&file=' . urlencode($currentFile) : '' ?>" class="<?= ($_GET['tab'] ?? 'cases') !== 'tags' ? 'active' : '' ?>">Разметка</a>
+  <a href="?tab=tags" class="<?= ($_GET['tab'] ?? 'cases') === 'tags' ? 'active' : '' ?>">Справочник тегов</a>
   <a href="/upload.php" target="_blank">Загрузка презентаций</a>
 </div>
 

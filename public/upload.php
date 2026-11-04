@@ -208,22 +208,11 @@ $files = $presentations->listPresentations();
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Загрузка презентаций — CasesBot</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; }
-  h1 { font-size: 1.4rem; }
-  form { margin: 1.5rem 0; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; }
-  .result { padding: 1rem; border-radius: 8px; white-space: pre-wrap; font-family: monospace; font-size: 0.85rem; }
-  .result.ok { background: #eaf7ea; border: 1px solid #b6dfb6; }
-  .result.error { background: #fbeaea; border: 1px solid #e3b6b6; }
-  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-  th, td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
-  td form { margin: 0; padding: 0; border: none; }
-  button { padding: 0.5rem 1rem; cursor: pointer; }
-  td button { padding: 0.2rem 0.6rem; font-size: 0.85rem; }
-</style>
+<link rel="stylesheet" href="/assets/style.css">
 </head>
-<body>
+<body class="narrow">
 
 <h1>Загрузка презентаций CasesBot</h1>
 
@@ -233,13 +222,13 @@ $files = $presentations->listPresentations();
 <div class="result <?= $result['ok'] ? 'ok' : 'error' ?>"><?= htmlspecialchars($result['message'], ENT_QUOTES) ?></div>
 <?php endif; ?>
 
-<form method="post" enctype="multipart/form-data">
+<form method="post" enctype="multipart/form-data" class="panel">
   <p>Загрузить .pptx (то же имя файла = новая версия существующей презентации):</p>
   <input type="file" name="presentation" accept=".pptx" required>
-  <button type="submit" name="action" value="upload">Загрузить</button>
+  <button type="submit" name="action" value="upload" class="btn-primary">Загрузить</button>
 </form>
 
-<form method="post" onsubmit="return confirm('Переиндексировать все презентации? Это может занять некоторое время.');">
+<form method="post" class="panel" onsubmit="return confirm('Переиндексировать все презентации? Это может занять некоторое время.');">
   <p>После загрузки новой версии запустите переиндексацию каталога:</p>
   <button type="submit" name="action" value="reindex">Запустить переиндексацию</button>
 </form>
@@ -255,7 +244,7 @@ $files = $presentations->listPresentations();
   <td>
     <form method="post" onsubmit="return confirm('Удалить презентацию «<?= htmlspecialchars($file['name'], ENT_QUOTES) ?>»?');">
       <input type="hidden" name="file" value="<?= htmlspecialchars($file['name'], ENT_QUOTES) ?>">
-      <button type="submit" name="action" value="delete">Удалить</button>
+      <button type="submit" name="action" value="delete" class="btn-danger btn-sm">Удалить</button>
     </form>
   </td>
 </tr>
