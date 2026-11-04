@@ -315,8 +315,8 @@ function deleteTag(button) {
       <?php endforeach; ?>
     </select>
   </label>
-  <label><input type="checkbox" id="hide-reviewed"> скрыть размеченные</label>
-  <label><input type="checkbox" id="show-not-case" checked> показывать «не кейс»</label>
+  <label><input type="checkbox" id="hide-reviewed" checked> скрыть размеченные</label>
+  <label><input type="checkbox" id="hide-not-case" checked> скрыть «не кейсы»</label>
 </div>
 
 <div id="cards">
@@ -457,9 +457,9 @@ function renderCard(card) {
 
   // Фильтры видимости
   const hideReviewed = document.getElementById('hide-reviewed');
-  const showNotCase = document.getElementById('show-not-case');
+  const hideNotCase = document.getElementById('hide-not-case');
   const reviewed = card.dataset.reviewed === '1';
-  card.style.display = ((hideReviewed && hideReviewed.checked && reviewed) || (!showNotCase || !showNotCase.checked) && notCase)
+  card.style.display = ((hideReviewed && hideReviewed.checked && reviewed) || (hideNotCase && hideNotCase.checked && notCase))
     ? 'none' : '';
 }
 
@@ -556,7 +556,7 @@ function setNotCase(checkbox) {
 document.getElementById('hide-reviewed').addEventListener('change', () => {
   document.querySelectorAll('.card').forEach(renderCard);
 });
-document.getElementById('show-not-case').addEventListener('change', () => {
+document.getElementById('hide-not-case').addEventListener('change', () => {
   document.querySelectorAll('.card').forEach(renderCard);
 });
 

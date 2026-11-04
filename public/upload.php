@@ -215,8 +215,11 @@ $files = $presentations->listPresentations();
 <body class="narrow">
 
 <h1>Загрузка презентаций CasesBot</h1>
-
-<p>См. также: <a href="/tags.php">интерфейс разметки кейсов</a> — теги, метки «не кейс», предложения LLM.</p>
+<div class="nav">
+  <a href="/tags.php">Разметка</a>
+  <a href="/tags.php?tab=tags">Справочник тегов</a>
+  <a href="/upload.php" class="active">Загрузка презентаций</a>
+</div>
 
 <?php if ($result !== null): ?>
 <div class="result <?= $result['ok'] ? 'ok' : 'error' ?>"><?= htmlspecialchars($result['message'], ENT_QUOTES) ?></div>
