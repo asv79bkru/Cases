@@ -385,8 +385,7 @@ function deleteTag(button) {
       <?php endif; ?>
       <div class="slide-text" onclick="this.classList.toggle('expanded')"><?= htmlspecialchars((string) ($case['content'] ?? ''), ENT_QUOTES) ?></div>
       <?php if (($case['reviewer_comments'] ?? '') !== ''): ?>
-      <div class="reviewer-comments"><b>Комментарии рецензентов:</b>
-        <span class="muted">служебный комментарий для разметки — в презентацию клиенту не попадает</span>
+      <div class="reviewer-comments"><b>Комментарии рецензентов (служебный комментарий, в презентацию клиенту не попадает):</b>
 <?= htmlspecialchars((string) $case['reviewer_comments'], ENT_QUOTES) ?></div>
       <?php endif; ?>
     </div>
