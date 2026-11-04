@@ -58,6 +58,9 @@ class GoogleDriveClient
 
     /**
      * Скачивает файл как .pptx в $destination (tmp->rename делается вызывающим кодом).
+     * До возврата файл проверяется как zip-пакет ([Content_Types].xml на месте) — обрыв
+     * соединения посреди скачивания внешне неотличим (HTTP 200 уже отдан), а первые байты
+     * 'PK' на месте даже у обрезанного файла. До 3 попыток с паузой.
      * Возвращает размер записанного файла в байтах.
      */
     public function downloadAsPptx(string $fileId, string $mimeType, string $destination): int
@@ -67,18 +70,45 @@ class GoogleDriveClient
             ? self::EXPORT_URL . rawurlencode($fileId) . '/export/pptx'
             : self::API_FILES_URL . rawurlencode($fileId) . '?alt=media';
 
-        $bytes = $this->httpDownload($url, $destination);
+        $attempts = 3;
+        $lastError = '';
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                $bytes = $this->httpDownload($url, $destination);
+                self::assertValidPptx($destination);
 
-        if ($bytes === 0) {
-            throw new RuntimeException("Drive: пустой ответ при скачивании файла {$fileId}.");
+                return $bytes;
+            } catch (RuntimeException $e) {
+                $lastError = $e->getMessage();
+                @unlink($destination);
+                if ($attempt < $attempts) {
+                    sleep(5);
+                }
+            }
         }
 
-        $magic = (string) @file_get_contents($destination, false, null, 0, 2);
+        throw new RuntimeException("Drive: файл {$fileId} не скачался целиком за {$attempts} попыток: {$lastError}");
+    }
+
+    /** Скачанный pptx обязан открываться как zip с [Content_Types].xml — иначе это обрыв загрузки. */
+    private static function assertValidPptx(string $path): void
+    {
+        $magic = (string) @file_get_contents($path, false, null, 0, 2);
         if ($magic !== 'PK') {
-            throw new RuntimeException("Drive: скачанный файл {$fileId} не похож на pptx (нет zip-сигнатуры).");
+            throw new RuntimeException('скачанный файл не похож на pptx (нет zip-сигнатуры)');
         }
 
-        return $bytes;
+        $zip = new \ZipArchive();
+        $code = $zip->open($path, \ZipArchive::CHECKCONS);
+        if ($code !== true) {
+            throw new RuntimeException("zip-пакет повреждён (код {$code}) — обрыв загрузки?");
+        }
+        $hasContentTypes = $zip->locateName('[Content_Types].xml') !== false;
+        $zip->close();
+
+        if (!$hasContentTypes) {
+            throw new RuntimeException('в пакете нет [Content_Types].xml — это не pptx');
+        }
     }
 
     // ------------------------------------------------------------------

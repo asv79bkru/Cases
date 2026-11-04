@@ -44,14 +44,16 @@ fi
 echo "==> Пересоздание контейнера $CONTAINER"
 # presentations-public/ — публичные копии без заметок/комментариев (PublicCopyBuilder):
 # bind-mount, чтобы копии переживали рестарт контейнера; после запуска пересобираем,
-# т.к. сырые исходники меняются независимо от контейнера.
-mkdir -p "$REMOTE_DIR/presentations-public"
+# т.к. сырые исходники меняются независимо от контейнера. storage/logs — чтобы лог sync
+# был виден на хосте и переживал пересоздание контейнера.
+mkdir -p "$REMOTE_DIR/presentations-public" "$REMOTE_DIR/storage/logs"
 docker rm -f "$CONTAINER" 2>/dev/null || true
 docker run -d --name "$CONTAINER" --restart unless-stopped \
     -p 8080:8080 -p 8081:8081 \
     -v "$REMOTE_DIR/presentations:/app/presentations" \
     -v "$REMOTE_DIR/presentations-public:/app/presentations-public" \
     -v "$REMOTE_DIR/storage/catalog:/app/storage/catalog" \
+    -v "$REMOTE_DIR/storage/logs:/app/storage/logs" \
     --env-file "$REMOTE_DIR/.env" \
     "$IMAGE"
 
