@@ -40,6 +40,8 @@ return [
         'images_path' => $env('CATALOG_IMAGES_PATH', __DIR__ . '/../storage/catalog/images'),
     ],
     'tags_taxonomy_path' => __DIR__ . '/tags.php',
+    // Карта связанных тегов для добора подборки до минимума (CasesCommand, TagTaxonomy::relatedTags).
+    'tag_relations_path' => __DIR__ . '/tag_relations.php',
     'python' => [
         'bin' => $env('PYTHON_BIN', 'python'),
         'slide_text_extractor' => __DIR__ . '/../python/slide_text_extractor.py',
@@ -81,6 +83,9 @@ return [
         'logs' => __DIR__ . '/../storage/logs',
     ],
     'max_slides_per_deck' => (int) $env('MAX_SLIDES_PER_DECK', '10'),
+    // Минимум кейсов в подборке: если по тегам нашлось меньше, бот добирает похожие —
+    // сначала по связанным тегам (config/tag_relations.php), затем по смыслу через LLM.
+    'min_slides_per_deck' => (int) $env('MIN_SLIDES_PER_DECK', '5'),
     // Веб-загрузчик презентаций (public/upload.php, :8081) — HTTP Basic Auth, без учётных данных
     // в .env страница отказывает в доступе (fail closed), а не открывается всем без пароля.
     'upload' => [

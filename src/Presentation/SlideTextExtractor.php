@@ -6,9 +6,9 @@ namespace CasesBot\Presentation;
 
 /**
  * Тонкая обёртка над Python-скриптом python/slide_text_extractor.py (python-pptx):
- * читает текст слайда (заголовок, буллеты, полный текст) для подсказок при тегировании (§6, §6.2 ТЗ),
- * определяет, помечен ли слайд как кейс (метка в заметках докладчика, см. $caseMarker),
- * и для слайдов-кейсов сохраняет картинки в $imagesDir.
+ * читает текст слайда (заголовок, буллеты, полный текст), заметки докладчика и комментарии
+ * рецензентов, определяет, помечен ли слайд как кейс (метка в заметках докладчика, см.
+ * $caseMarker), и сохраняет картинки слайда в $imagesDir (превью для веб-интерфейса разметки).
  */
 class SlideTextExtractor
 {
@@ -21,7 +21,7 @@ class SlideTextExtractor
     }
 
     /**
-     * @return array<int, array{slide_number: int, title: string, text: string, notes: string, is_case: bool, images: string[]}>
+     * @return array<int, array{slide_number: int, title: string, text: string, notes: string, is_case: bool, images: string[], comments: string}>
      */
     public function extract(string $pptxPath): array
     {

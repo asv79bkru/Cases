@@ -100,18 +100,37 @@ function handleReindex(array $config): array
     // Пересборка «парадных» копий (без заметок/комментариев) — они отдаются по :8080 как ссылки
     // из чата; сырой файл с пометками наружу не выходит (см. PublicCopyBuilder).
     $publicErrors = updatePublicCopies($config);
+
+    $statusLabel = [
+        'new' => 'новый',
+        'moved' => 'переставлен',
+        'updated' => 'обновлён',
+        'unchanged' => 'без изменений',
+    ];
+
     $lines = array_map(
-        static fn (array $row): string => htmlspecialchars(
-            "{$row['file']}, слайд {$row['slide']}: " . ($row['title'] !== '' ? $row['title'] : '(без названия)')
-                . ' [' . implode(', ', $row['tags']) . ']',
-            ENT_QUOTES
-        ),
+        static function (array $row): string {
+            $tags = $row['tags'] !== [] ? implode(', ', $row['tags']) : '—';
+            $suggestions = $row['suggestions'] > 0 ? " (+{$row['suggestions']} предл.)" : '';
+            $status = $statusLabel[$row['status']] ?? $row['status'];
+
+            return htmlspecialchars(
+                "{$row['file']}, слайд {$row['slide']} [{$status}]: "
+                    . ($row['title'] !== '' ? $row['title'] : '(без названия)')
+                    . " [теги: {$tags}]{$suggestions}",
+                ENT_QUOTES
+            );
+        },
         $indexed
     );
 
-    $message = 'Переиндексация завершена: обработано ' . count($indexed) . " кейс(ов).\n" . implode("\n", $lines);
+    $message = 'Переиндексация завершена: обработано ' . count($indexed) . " слайд(ов).\n" . implode("\n", $lines);
+    $pendingTotal = array_sum(array_map(static fn (array $row): int => $row['suggestions'], $indexed));
+    if ($pendingTotal > 0) {
+        $message .= "\n\nНовые предложения тегов ждут подтверждения в интерфейсе разметки (теги, порт :8081).";
+    }
     if ($llmErrors !== []) {
-        $message .= "\n\nLLM не смогла дополнить теги для некоторых слайдов:\n" . implode("\n", array_unique($llmErrors));
+        $message .= "\n\nLLM не смогла предложить теги для некоторых слайдов:\n" . implode("\n", array_unique($llmErrors));
     }
     if ($publicErrors !== []) {
         $message .= "\n\nНе получилось пересобрать публичные копии (ссылку в чате мог получить незачищенный файл — проверьте):\n"
@@ -207,6 +226,8 @@ $files = $presentations->listPresentations();
 <body>
 
 <h1>Загрузка презентаций CasesBot</h1>
+
+<p>См. также: <a href="/tags.php">интерфейс разметки кейсов</a> — теги, метки «не кейс», предложения LLM.</p>
 
 <?php if ($result !== null): ?>
 <div class="result <?= $result['ok'] ? 'ok' : 'error' ?>"><?= htmlspecialchars($result['message'], ENT_QUOTES) ?></div>

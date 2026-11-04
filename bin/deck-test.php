@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Автономная проверка CaseDeckBuilder (все слайды без метки #кейс# + переданные номера
+ * Автономная проверка CaseDeckBuilder (все слайды «не кейс» из каталога + переданные номера
  * кейсов, найденных по запросу) — без чат-интеграции, без запуска бота.
  *
  * Запуск: php bin/deck-test.php "Экспертиза направления бизнес автоматизации.pptx" "7,9"
@@ -11,9 +11,9 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Presentation\CaseDeckBuilder;
 use CasesBot\Presentation\SlideCloner;
-use CasesBot\Presentation\SlideTextExtractor;
 use CasesBot\Storage\LocalPresentationsClient;
 
 $envPath = __DIR__ . '/../.env';
@@ -42,12 +42,19 @@ $slideNumbers = array_map('intval', explode(',', $argv[2]));
 
 $presentations = new LocalPresentationsClient($config['presentations']['folder_path'], '', $config['presentations']['public_name_overrides'] ?? []);
 $builder = new CaseDeckBuilder(
-    new SlideTextExtractor($config['python']['bin'], $config['python']['slide_text_extractor'], $config['case_marker']),
     new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']),
     $presentations,
     $config['storage']['output'],
 );
 
-$pptxPath = $builder->build($sourceFileId, $slideNumbers);
+// Список «не-кейсов» теперь живёт в каталоге (веб-интерфейс разметки), а не в заметках исходника.
+$catalog = new CatalogRepository(
+    $config['catalog']['storage_path'],
+    __DIR__ . '/../storage/catalog/schema.sql',
+    $config['catalog']['images_path']
+);
+$notCaseSlides = $catalog->notCaseSlideNumbers($sourceFileId);
+
+$pptxPath = $builder->build($sourceFileId, $slideNumbers, $notCaseSlides);
 
 fwrite(STDOUT, "Собрано: {$pptxPath}\n");

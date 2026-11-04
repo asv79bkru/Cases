@@ -44,9 +44,13 @@ if (!isset($argv[1])) {
     exit(1);
 }
 
-$catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
+$catalog = new CatalogRepository(
+    $config['catalog']['storage_path'],
+    __DIR__ . '/../storage/catalog/schema.sql',
+    $config['catalog']['images_path']
+);
 $presentations = new LocalPresentationsClient($config['presentations']['folder_path'], '', $config['presentations']['public_name_overrides'] ?? []);
-$tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
+$tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path'], $config['tag_relations_path'] ?? null);
 $slideCloner = new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']);
 $builder = new PresentationBuilder(
     $slideCloner,
@@ -58,7 +62,7 @@ $builder = new PresentationBuilder(
 // обязательная зависимость конструктора CasesCommand, чтобы переиспользовать его parseQuery().
 $vkTeamsClient = new VkTeamsClient($config['vk_teams']['bot_token'], $config['vk_teams']['api_url']);
 
-$casesCommand = new CasesCommand($vkTeamsClient, $catalog, $presentations, $tagTaxonomy, $config['max_slides_per_deck']);
+$casesCommand = new CasesCommand($vkTeamsClient, $catalog, $presentations, $tagTaxonomy, $config['max_slides_per_deck'], $config['min_slides_per_deck']);
 
 $tags = $casesCommand->parseQuery($argv[1]);
 if ($tags === []) {

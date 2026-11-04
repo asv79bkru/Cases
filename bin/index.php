@@ -3,23 +3,20 @@
 declare(strict_types=1);
 
 /**
- * CLI-инструмент индексации (§5.1.8, Этап 1 из §9 ТЗ).
- * Обходит презентации, предлагает теги через SlideTextExtractor, сохраняет в CatalogRepository
- * только после подтверждения эксперта: по каждому слайду — принять/поправить теги/пропустить,
- * плюс необязательная ссылка на сайт, один проход.
+ * CLI-инструмент индексации — тот же проход, что делает веб-загрузчик (public/upload.php)
+ * и sync-шаг Google Drive: все слайды всех презентаций индексируются автоматически, без
+ * диалога по слайдам. Ручная курация тегов и меток «не кейс» теперь делается в веб-интерфейсе
+ * разметки (public/tags.php, порт :8081) — там же подтверждаются/отклоняются предложения
+ * словаря и LLM. Сценарий прежнего интерактивного тегирования в заметках докладчика тоже
+ * работает: хэштеги заметок переносятся как теги, пока слайд не размечен экспертом.
  *
  * Запуск: php bin/index.php
  */
 
 require __DIR__ . '/../vendor/autoload.php';
 
-use CasesBot\Api\Providers\ProviderFactory;
 use CasesBot\Catalog\CatalogRepository;
-use CasesBot\Catalog\Indexer;
-use CasesBot\Catalog\LlmTagSuggester;
-use CasesBot\Catalog\TagTaxonomy;
-use CasesBot\Presentation\SlideTextExtractor;
-use CasesBot\Storage\LocalPresentationsClient;
+use CasesBot\Catalog\Reindexer;
 
 $envPath = __DIR__ . '/../.env';
 if (is_file($envPath)) {
@@ -37,74 +34,49 @@ if (is_file($envPath)) {
 
 $config = require __DIR__ . '/../config/config.php';
 
-$presentations = new LocalPresentationsClient($config['presentations']['folder_path'], '', $config['presentations']['public_name_overrides'] ?? []);
-$slideTextExtractor = new SlideTextExtractor(
-    $config['python']['bin'],
-    $config['python']['slide_text_extractor'],
-    $config['case_marker'],
-    $config['catalog']['images_path']
-);
-$tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
-$catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
+$report = Reindexer::fromConfig($config)->runAutomatic();
 
-$llmTagSuggester = null;
-$llmProviderName = $config['llm']['provider'];
-$llmProviderConfig = $config['llm'][$llmProviderName] ?? [];
-if (($llmProviderConfig['api_key'] ?? '') !== '' && ($llmProviderConfig['model'] ?? '') !== '') {
-    $llmTagSuggester = new LlmTagSuggester(
-        ProviderFactory::create($llmProviderName, $config['llm']),
-        $tagTaxonomy
+$statusLabel = [
+    'new' => 'новый',
+    'moved' => 'переставлен',
+    'updated' => 'обновлён',
+    'unchanged' => 'без изменений',
+];
+
+fwrite(STDOUT, "Индексация завершена: обработано " . count($report['indexed']) . " слайд(ов).\n");
+foreach ($report['indexed'] as $row) {
+    $suggestions = $row['suggestions'] > 0 ? ", предложений: {$row['suggestions']}" : '';
+    printf(
+        "%s, слайд %d [%s]%s: %s [теги: %s]\n",
+        $row['file'],
+        $row['slide'],
+        $statusLabel[$row['status']] ?? $row['status'],
+        $suggestions,
+        $row['title'] !== '' ? $row['title'] : '(без заголовка)',
+        implode(', ', $row['tags']) !== '' ? implode(', ', $row['tags']) : '—'
     );
-} else {
-    fwrite(STDOUT, "LLM-провайдер «{$llmProviderName}» не настроен (нет api_key/model в .env) — "
-        . "теги дополняются только словарём и заметками.\n");
 }
 
-$indexer = new Indexer($presentations, $slideTextExtractor, $tagTaxonomy, $catalog, $llmTagSuggester);
+if ($report['llmErrors'] !== []) {
+    fwrite(STDOUT, "\nLLM не смогла предложить теги для некоторых слайдов:\n" . implode("\n", array_unique($report['llmErrors'])) . "\n");
+}
 
-$indexer->run(static function (string $fileName, array $slide, array $suggested): ?array {
-    fwrite(STDOUT, "\n=== {$fileName}, слайд {$slide['slide_number']} ===\n");
-    if ($slide['title'] !== '') {
-        fwrite(STDOUT, "Заголовок: {$slide['title']}\n");
-    }
-    $preview = mb_substr(str_replace("\n", ' / ', $slide['text']), 0, 200);
-    fwrite(STDOUT, "Текст: {$preview}\n");
-
-    $suggestedText = implode(', ', $suggested);
-    fwrite(STDOUT, 'Предложенные теги: ' . ($suggestedText !== '' ? $suggestedText : '(нет)') . "\n");
-
-    fwrite(STDOUT, "Теги [Enter — принять предложенные, skip — пропустить слайд, "
-        . "или свои через запятую]: ");
-    $line = trim((string) fgets(STDIN));
-
-    if (strtolower($line) === 'skip') {
-        return null;
-    }
-
-    $tags = $suggested;
-    if ($line !== '') {
-        $tags = TagTaxonomy::parseTagList($line);
-    }
-
-    fwrite(STDOUT, 'Ссылка на сайт [необязательно, Enter — пропустить]: ');
-    $siteUrl = trim((string) fgets(STDIN));
-
-    return ['tags' => $tags, 'site_url' => $siteUrl !== '' ? $siteUrl : null];
-}, static function (string $error): void {
-    fwrite(STDOUT, "LLM не смогла дополнить теги: {$error}\n");
-});
-
-fwrite(STDOUT, "\nИндексация завершена. Итого в каталоге:\n");
-foreach ($catalog->all() as $row) {
+fwrite(STDOUT, "\nРазметка тегов и меток «не кейс» — в веб-интерфейсе (public/tags.php, порт :8081).\n");
+fwrite(STDOUT, "Итого в каталоге:\n");
+foreach ((new CatalogRepository(
+    $config['catalog']['storage_path'],
+    __DIR__ . '/../storage/catalog/schema.sql',
+    $config['catalog']['images_path']
+))->all() as $row) {
     $imagesCount = $row['images'] !== null ? count(explode(', ', $row['images'])) : 0;
     printf(
-        "#%d %s (слайд %d): %s [%s]%s, картинок: %d\n",
+        "#%d %s (слайд %d)%s: %s [%s], картинок: %d\n",
         $row['id'],
         $row['source_file_name'],
         $row['slide_number'],
+        $row['is_not_case'] ? ' [не кейс]' : '',
         $row['title'] ?? '(без заголовка)',
         $row['tags'] ?? '',
-        $row['site_url'] !== null ? " -> {$row['site_url']}" : '',
         $imagesCount
     );
 }

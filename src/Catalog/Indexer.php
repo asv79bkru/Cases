@@ -9,18 +9,27 @@ use CasesBot\Storage\LocalPresentationsClient;
 use Throwable;
 
 /**
- * Обходит презентации (временно — папка presentations/ рядом с приложением, см. LocalPresentationsClient;
- * интеграция с Google Drive отложена). Индексируются только слайды, помеченные экспертом как кейс —
- * меткой в заметках докладчика (см. SlideTextExtractor::$caseMarker), невидимой на самом слайде и
- * в показе; остальное (обложка, о компании, контакты) пропускается автоматически, без вопросов.
+ * Обходит презентации (LocalPresentationsClient; sync с Google Drive обновляет те же файлы)
+ * и индексирует ВСЕ слайды каждой презентации — не только помеченные меткой #кейс#: разметка
+ * «кейс/не кейс» переехала из заметок докладчика в веб-интерфейс (public/tags.php), по умолчанию
+ * слайд считается кейсом, эксперт отмечает в интерфейсе только не-кейсы (обложка, о компании,
+ * контакты). Метка #кейс# в заметках сохраняет смысл только при первом индексе презентаций,
+ * размеченных по старому процессу: слайды без метки получают is_not_case = 1.
  *
- * Теги собираются из трёх источников: (1) теги, которые эксперт сам перечислил в заметках после
- * метки кейса — источник истины, эксперт пишет их прямо в PowerPoint при подготовке презентации
- * (см. ТЗ v1.2, §5.1.8); (2) LLM по содержимому слайда (LlmTagSuggester); (3) простое совпадение
- * по словарю (TagTaxonomy::suggestTags) — оба лишь дополняют то, что уже написано в заметках, не
- * заменяют его. run() отдаёт решение о сохранении вызывающему коду (интерактивный CLI —
- * bin/index.php, для локальной проверки/правки); runAutomatic() сохраняет предложенное сразу,
- * без ручного шага — так работает веб-загрузчик (public/upload.php).
+ * Теги после переезда разметки в веб:
+ *  - notes — хэштеги из заметок докладчика (#erp #производство#), переносятся для слайдов,
+ *    которые эксперт ещё не размечал (tags_reviewed = 0); у размеченных теги не трогаются;
+ *  - expert — решения эксперта в веб-интерфейсе, не трогаются никогда;
+ *  - словарь (TagTaxonomy::suggestTags) и LLM (LlmTagSuggester) — больше не теги, а
+ *    ПРЕДЛОЖЕНИЯ: пишутся в tag_suggestions и становятся тегами только после подтверждения
+ *    эксперта в веб-интерфейсе.
+ *
+ * Переиндексация идемпотентна и не стирает ручное: слайды сопоставляются со строками
+ * каталога по содержимому (SlideMatcher — переживают перестановка слайдов и правки текста),
+ * контент обновляется, теги/метки/подтверждения остаются. Слайды, которых больше нет в
+ * исходнике, удаляются. Атомарность: вся операция в одной транзакции SQLite (WAL) — при
+ * сбое каталог откатывается к прежнему состоянию; параллельный запуск исключает
+ * flock-лок (Reindexer).
  */
 class Indexer
 {
@@ -34,109 +43,155 @@ class Indexer
     }
 
     /**
-     * Индексирует все презентации из источника. $prompt получает (имя файла, слайд, предложенные теги)
-     * и возвращает ['tags' => ..., 'site_url' => ...] для сохранения, либо null, чтобы пропустить слайд —
-     * так вызывающий код (CLI) решает, как именно спросить подтверждение у эксперта.
-     *
-     * @param callable(string, array{slide_number:int,title:string,text:string}, string[]): (array{tags: string[], site_url: ?string}|null) $prompt
-     * @param ?callable(string): void $onLlmError Вызывается, если LLM недоступна/вернула ошибку — индексация продолжается без неё.
-     */
-    public function run(callable $prompt, ?callable $onLlmError = null): void
-    {
-        foreach ($this->presentations->listPresentations() as $file) {
-            $path = $this->presentations->getFilePath($file['id']);
-            $slides = $this->slideTextExtractor->extract($path);
-
-            foreach ($slides as $slide) {
-                if (!$slide['is_case']) {
-                    continue;
-                }
-
-                $suggested = $this->collectSuggestedTags($slide, $onLlmError);
-
-                $answer = $prompt($file['name'], $slide, $suggested);
-                if ($answer === null) {
-                    continue;
-                }
-
-                $this->catalog->saveCase(new CaseItem(
-                    id: null,
-                    sourceFileId: $file['id'],
-                    sourceFileName: $file['name'],
-                    slideNumber: $slide['slide_number'],
-                    title: $slide['title'] !== '' ? $slide['title'] : null,
-                    content: $slide['text'] !== '' ? $slide['text'] : null,
-                    tags: $answer['tags'],
-                    images: $slide['images'] ?? [],
-                    addedAt: date(DATE_ATOM),
-                    siteUrl: $answer['site_url'],
-                ));
-            }
-        }
-    }
-
-    /**
-     * Индексирует все презентации без ручного подтверждения по каждому слайду — источник истины
-     * для тегов теперь заметки докладчика (эксперт пишет их в PowerPoint при подготовке слайда,
-     * см. class-докблок), поэтому дополнительное подтверждение в самом индексаторе избыточно;
-     * словарь/LLM лишь дополняют то, что уже написано в заметках. Используется веб-загрузчиком
-     * (public/upload.php) и sync-шагом Google Drive (bin/sync.php) — в отличие от run(), не
-     * требует интерактивного ввода.
-     *
-     * Перед обходом презентаций таблица cases полностью очищается (CatalogRepository::clearAll)
-     * и собирается заново только из файлов, реально лежащих сейчас в presentations/ — иначе
-     * кейсы удалённой/переименованной презентации остаются в базе навсегда (upsert по
-     * source_file_id+slide_number не удаляет строки для файлов, которых больше нет) и приводят
-     * к "Презентация не найдена" при попытке отдать по ним ссылку.
-     *
-     * Атомарность: очистка и заполнение идут в одной транзакции (CatalogRepository::transactional)
-     * — при падении посреди прохода (битый pptx, сбой python/БД) база откатывается к прежнему
-     * полному каталогу, «пустого окна» для бота не бывает.
+     * Индексирует все презентации источника без ручного ввода — используется веб-загрузчиком
+     * (public/upload.php), sync-шагом Google Drive (bin/sync.php) и CLI-проверкой (bin/index.php).
      *
      * @param ?callable(string): void $onLlmError Вызывается, если LLM недоступна/вернула ошибку.
-     * @return array<int, array{file: string, slide: int, title: string, tags: string[]}>
+     * @return array<int, array{file: string, slide: int, title: string, tags: string[], status: string, suggestions: int}>
      */
     public function runAutomatic(?callable $onLlmError = null): array
     {
         return $this->catalog->transactional(function () use ($onLlmError): array {
-            $this->catalog->clearAll();
+            $report = [];
+            $fileIds = [];
 
-            $indexed = [];
+            foreach ($this->presentations->listPresentations() as $file) {
+                $fileIds[] = $file['id'];
+                $report = array_merge($report, $this->indexPresentation($file, $onLlmError));
+            }
 
-            $this->run(
-                static function (string $fileName, array $slide, array $suggested) use (&$indexed): array {
-                    $indexed[] = [
-                        'file' => $fileName,
-                        'slide' => $slide['slide_number'],
-                        'title' => $slide['title'],
-                        'tags' => $suggested,
-                    ];
+            // Презентации, удалённые из источника целиком: строки каталога больше не актуальны.
+            $this->catalog->pruneMissing($fileIds);
 
-                    return ['tags' => $suggested, 'site_url' => null];
-                },
-                $onLlmError
-            );
-
-            return $indexed;
+            return $report;
         });
     }
 
     /**
-     * @param array{title:string, text:string, notes:string} $slide
+     * Индексирует одну презентацию: сопоставляет слайды со строками каталога, обновляет
+     * контент, переносит notes-теги неразмеченных слайдов, кладёт предложения в очередь.
+     *
+     * @param array{id: string, name: string} $file
      * @param ?callable(string): void $onLlmError
-     * @return string[]
+     * @return array<int, array{file: string, slide: int, title: string, tags: string[], status: string, suggestions: int}>
      */
-    private function collectSuggestedTags(array $slide, ?callable $onLlmError): array
+    private function indexPresentation(array $file, ?callable $onLlmError): array
     {
-        $tags = $this->tagTaxonomy->suggestTags($slide['title'] . "\n" . $slide['text']);
-        $tags = array_merge($tags, $this->notesTags($slide['notes']));
+        $path = $this->presentations->getFilePath($file['id']);
+        $slides = $this->slideTextExtractor->extract($path);
 
+        $existingRows = $this->catalog->slideRowsForFile($file['id']);
+        $rowsById = [];
+        foreach ($existingRows as $row) {
+            $rowsById[$row['id']] = $row;
+        }
+
+        $plan = (new SlideMatcher())->match($slides, $existingRows);
+
+        // Презентация старого образца (размечена метками в заметках): слайды без метки —
+        // не кейсы. Презентация без меток вообще — новая модель: все слайды кейсы,
+        // эксперт отметит не-кейсы в веб-интерфейсе.
+        $hasMarkers = false;
+        foreach ($slides as $slide) {
+            if ($slide['is_case']) {
+                $hasMarkers = true;
+                break;
+            }
+        }
+
+        // Позиции существующих строк временно становятся отрицательными — иначе обновление
+        // slide_number по цепочке переставленных слайдов нарушает UNIQUE (см. CatalogRepository).
+        $this->catalog->stageSlidePositionsForReindex($file['id']);
+
+        $report = [];
+
+        foreach ($slides as $slide) {
+            $caseItem = new CaseItem(
+                id: null,
+                sourceFileId: $file['id'],
+                sourceFileName: $file['name'],
+                slideNumber: $slide['slide_number'],
+                title: $slide['title'] !== '' ? $slide['title'] : null,
+                content: $slide['text'] !== '' ? $slide['text'] : null,
+                tags: [],
+                images: $slide['images'] ?? [],
+                addedAt: date(DATE_ATOM),
+                siteUrl: null,
+                reviewerComments: ($slide['comments'] ?? '') !== '' ? $slide['comments'] : null,
+                contentHash: SlideMatcher::contentHash($slide['title'], $slide['text']),
+            );
+
+            $notesTags = $this->dedupeTags($this->notesTags($slide['notes']));
+
+            $existingId = $plan['matched'][$slide['slide_number']] ?? null;
+
+            if ($existingId !== null) {
+                $row = $rowsById[$existingId];
+                $changed = ($row['content_hash'] ?? null) !== $caseItem->contentHash;
+
+                $this->catalog->updateCaseContent($existingId, $caseItem);
+
+                $status = (int) $row['slide_number'] !== $slide['slide_number']
+                    ? ($changed ? 'updated' : 'moved')
+                    : ($changed ? 'updated' : 'unchanged');
+
+                // Неразмеченный слайд: заметки остаются источником тегов (эксперт мог их
+                // поправить в PowerPoint). Размеченный (tags_reviewed = 1) — не трогаем.
+                if (!$row['tags_reviewed']) {
+                    $this->catalog->syncNotesTags($existingId, $notesTags);
+                }
+
+                // Предложения обновляются только у изменившихся слайдов: без изменений —
+                // очередь эксперта не трогается, лишних вызовов LLM нет.
+                $suggestions = 0;
+                if ($changed) {
+                    $suggestions = $this->queueSuggestions($existingId, $slide, $onLlmError);
+                }
+
+                $report[] = $this->reportRow($file, $slide, $existingId, $status, $suggestions);
+
+                continue;
+            }
+
+            $isNotCase = $hasMarkers && !$slide['is_case'];
+            $caseId = $this->catalog->insertCase($caseItem, $isNotCase, $notesTags);
+
+            $suggestions = $this->queueSuggestions($caseId, $slide, $onLlmError);
+
+            $report[] = $this->reportRow($file, $slide, $caseId, 'new', $suggestions);
+        }
+
+        // Строки, которым не нашлось пары (слайд удалили), и их картинки.
+        $this->catalog->pruneSlidesOfFile(
+            $file['id'],
+            array_map(static fn (array $slide): int => (int) $slide['slide_number'], $slides)
+        );
+
+        return $report;
+    }
+
+    /**
+     * Кладёт словарные и LLM-предложения тегов в очередь tag_suggestions. Возвращает
+     * число новых pending-предложений. Ошибка LLM не прерывает индексацию.
+     *
+     * @param array{title: string, text: string, comments?: string} $slide
+     * @param ?callable(string): void $onLlmError
+     */
+    private function queueSuggestions(int $caseId, array $slide, ?callable $onLlmError): int
+    {
+        $dictTags = $this->tagTaxonomy->normalizeTags(
+            $this->tagTaxonomy->suggestTags($slide['title'] . "\n" . $slide['text'] . "\n" . ($slide['comments'] ?? ''))
+        );
+
+        $llmTags = [];
         if ($this->llmTagSuggester !== null) {
             try {
-                $tags = array_merge(
-                    $tags,
-                    $this->llmTagSuggester->suggest($slide['title'], $slide['text'])
+                $llmTags = $this->llmTagSuggester->suggest(
+                    $slide['title'],
+                    $slide['text'],
+                    $slide['comments'] ?? ''
                 );
+                $llmTags = $this->tagTaxonomy->normalizeTags($llmTags);
             } catch (Throwable $e) {
                 if ($onLlmError !== null) {
                     $onLlmError($e->getMessage());
@@ -144,7 +199,20 @@ class Indexer
             }
         }
 
-        return $this->dedupeTags($tags);
+        return $this->catalog->refreshSuggestions($caseId, $dictTags, $llmTags);
+    }
+
+    /** @param array{id: string, name: string} $file */
+    private function reportRow(array $file, array $slide, int $caseId, string $status, int $suggestions): array
+    {
+        return [
+            'file' => $file['name'],
+            'slide' => $slide['slide_number'],
+            'title' => $slide['title'],
+            'tags' => $this->catalog->tagsForCase($caseId),
+            'status' => $status,
+            'suggestions' => $suggestions,
+        ];
     }
 
     /**
@@ -152,6 +220,8 @@ class Indexer
      * "#erp #производство#") — тегом считается только текст строго между двумя соседними
      * символами #; текст до первого # и после последнего (в т.ч. метка кейса #кейс#,
      * см. SlideTextExtractor::$caseMarker, и любые сопроводительные заметки) в теги не попадает.
+     *
+     * @return string[]
      */
     private function notesTags(string $notes): array
     {

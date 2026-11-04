@@ -22,7 +22,6 @@ use CasesBot\Catalog\LlmCaseMatcher;
 use CasesBot\Catalog\TagTaxonomy;
 use CasesBot\Presentation\CaseDeckBuilder;
 use CasesBot\Presentation\SlideCloner;
-use CasesBot\Presentation\SlideTextExtractor;
 use CasesBot\Storage\LocalPresentationsClient;
 
 $envPath = __DIR__ . '/../.env';
@@ -47,8 +46,12 @@ if ($config['vk_teams']['bot_token'] === '' || $config['vk_teams']['api_url'] ==
 }
 
 $vkTeamsClient = new VkTeamsClient($config['vk_teams']['bot_token'], $config['vk_teams']['api_url']);
-$catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
-$tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
+$catalog = new CatalogRepository(
+    $config['catalog']['storage_path'],
+    __DIR__ . '/../storage/catalog/schema.sql',
+    $config['catalog']['images_path']
+);
+$tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path'], $config['tag_relations_path'] ?? null);
 $presentations = new LocalPresentationsClient(
     $config['presentations']['folder_path'],
     $config['presentations']['http_base_url'],
@@ -66,7 +69,6 @@ if (($llmProviderConfig['api_key'] ?? '') !== '' && ($llmProviderConfig['model']
 }
 
 $caseDeckBuilder = new CaseDeckBuilder(
-    new SlideTextExtractor($config['python']['bin'], $config['python']['slide_text_extractor'], $config['case_marker']),
     new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']),
     $presentations,
     $config['storage']['output'],
@@ -78,6 +80,7 @@ $casesCommand = new CasesCommand(
     $presentations,
     $tagTaxonomy,
     $config['max_slides_per_deck'],
+    $config['min_slides_per_deck'],
     $llmCaseMatcher,
     $caseDeckBuilder,
 );

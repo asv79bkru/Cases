@@ -6,7 +6,8 @@ namespace CasesBot\Catalog;
 
 /**
  * DTO: исходный файл, номер слайда, заголовок, полный текст слайда, картинки, теги (плоский
- * список — без категорий), дата добавления, необязательная ссылка на сайт.
+ * список — без категорий), дата добавления, необязательная ссылка на сайт, комментарии
+ * рецензентов и служебные поля сопоставления слайдов при переиндексации.
  * В ТЗ (§6.2) класс называется `Case` — переименован в `CaseItem`, так как `case` зарезервированное слово PHP.
  */
 class CaseItem
@@ -27,6 +28,10 @@ class CaseItem
         public string $addedAt,
         public ?string $siteUrl = null,
         public bool $isHidden = false,
+        public ?string $reviewerComments = null,
+        public ?string $contentHash = null,
+        public bool $isNotCase = false,
+        public bool $tagsReviewed = false,
     ) {
     }
 }

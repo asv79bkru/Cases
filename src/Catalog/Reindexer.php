@@ -10,9 +10,10 @@ use CasesBot\Storage\LocalPresentationsClient;
 
 /**
  * Собирает граф объектов индексации из config (так его строят и bin/index.php, и public/upload.php)
- * и запускает автоматическую переиндексацию (Indexer::runAutomatic — без диалога по слайдам,
- * источник тегов — заметки докладчика, ТЗ §5.1.8). Единая точка нужна, чтобы переиндексация
- * из веб-загрузчика и из sync-шага Google Drive (bin/sync.php) вела себя одинаково.
+ * и запускает автоматическую переиндексацию (Indexer::runAutomatic). Единая точка нужна, чтобы
+ * переиндексация из веб-загрузчика и из sync-шага Google Drive (bin/sync.php) вела себя одинаково.
+ * Теги после переезда разметки в веб-интерфейс (public/tags.php) при переиндексации не
+ * перетираются: обновляется только контент слайдов и очередь предложений (см. Indexer).
  */
 class Reindexer
 {
@@ -31,10 +32,11 @@ class Reindexer
             $config['case_marker'],
             $config['catalog']['images_path']
         );
-        $tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
+        $tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path'], $config['tag_relations_path'] ?? null);
         $catalog = new CatalogRepository(
             $config['catalog']['storage_path'],
-            self::schemaPath($config)
+            self::schemaPath($config),
+            $config['catalog']['images_path']
         );
 
         $llmTagSuggester = null;
@@ -69,12 +71,12 @@ class Reindexer
     }
 
     /**
-     * Переиндексирует все презентации источника (clearAll + построение заново; атомарно —
-     * очистка и вставка в одной транзакции, см. Indexer::runAutomatic). Повторный запуск,
-     * пока предыдущий не закончился, отклоняется: flock на reindex.lock, общий для sync и
-     * веб-загрузчика.
+     * Переиндексирует все презентации источника (обновление существующих слайдов + вставка
+     * новых + удаление исчезнувших; атомарно — в одной транзакции, см. Indexer::runAutomatic).
+     * Повторный запуск, пока предыдущий не закончился, отклоняется: flock на reindex.lock,
+     * общий для sync и веб-загрузчика.
      *
-     * @return array{indexed: array<int, array{file: string, slide: int, title: string, tags: string[]}>, llmErrors: string[]}
+     * @return array{indexed: array<int, array{file: string, slide: int, title: string, tags: string[], status: string, suggestions: int}>, llmErrors: string[]}
      */
     public function runAutomatic(): array
     {

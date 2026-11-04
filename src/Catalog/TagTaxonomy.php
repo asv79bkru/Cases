@@ -6,15 +6,24 @@ namespace CasesBot\Catalog;
 
 /**
  * Справочник допустимых тегов и синонимов (например, «ритейл» = «розница»), см. config/tags.php.
+ * Дополнительно держит карту связанных тегов (config/tag-relations.php: «авто» ↔ «автопром» ↔
+ * «машиностроение») — ею команда «кейсы» добирает подборку до минимума, когда по запросу
+ * нашлось слишком мало кейсов (CasesCommand).
  */
 class TagTaxonomy
 {
     /** @var array<string, array<int, string>> */
     private array $dictionary;
 
-    public function __construct(string $configPath)
+    /** @var array<string, array<int, string>> */
+    private array $relations;
+
+    public function __construct(string $configPath, ?string $relationsPath = null)
     {
         $this->dictionary = require $configPath;
+        $this->relations = $relationsPath !== null && is_file($relationsPath)
+            ? require $relationsPath
+            : [];
     }
 
     /** @return string[] Уже существующие канонические теги. */
@@ -40,6 +49,53 @@ class TagTaxonomy
         }
 
         return null;
+    }
+
+    /**
+     * Приводит список тегов к каноническим формам, где это возможно; теги, которых нет
+     * в справочнике, остаются как есть. Дубли схлопываются (регистронезависимо).
+     *
+     * @param string[] $tags
+     * @return string[]
+     */
+    public function normalizeTags(array $tags): array
+    {
+        $normalized = [];
+
+        foreach ($tags as $tag) {
+            $tag = trim($tag);
+            if ($tag === '') {
+                continue;
+            }
+
+            $canonical = $this->normalize($tag) ?? $tag;
+            $normalized[mb_strtolower($canonical)] = $canonical;
+        }
+
+        return array_values($normalized);
+    }
+
+    /**
+     * Теги, связанные с $tag (например, для «авто» — «автопром», «машиностроение»):
+     * используются при доборе подборки до минимума (CasesCommand). Сам тег и повторы
+     * из ответа исключаются; связь с тегом, которого нет в справочнике/каталоге, безвредна
+     * — поиск по нему просто ничего не найдёт.
+     *
+     * @return string[]
+     */
+    public function relatedTags(string $tag): array
+    {
+        $tag = mb_strtolower(trim($tag));
+
+        $related = [];
+        foreach ($this->relations[$tag] ?? [] as $name) {
+            $name = mb_strtolower(trim($name));
+            if ($name !== '' && $name !== $tag) {
+                $related[$name] = $name;
+            }
+        }
+
+        return array_values($related);
     }
 
     /**

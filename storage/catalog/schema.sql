@@ -9,6 +9,11 @@ PRAGMA foreign_keys = ON;
 -- ============================================================
 
 -- Кейсы (DTO CaseItem, §6.2): исходный файл, номер слайда, заголовок, дата добавления.
+-- Начиная с версии «разметка в веб-интерфейсе» в cases лежат ВСЕ слайды презентаций,
+-- а не только кейсы: is_not_case = 1 помечает служебные слайды (обложка, о компании,
+-- контакты), отмечается экспертом в веб-интерфейсе. Метки «не кейс», теги и
+-- tags_reviewed переживают переиндексацию (сопоставление слайдов по content_hash,
+-- см. SlideMatcher); контент и reviewer_comments — исходные данные, обновляются всегда.
 CREATE TABLE IF NOT EXISTS cases (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     source_file_id    TEXT    NOT NULL,             -- id файла на Google Drive
@@ -16,8 +21,13 @@ CREATE TABLE IF NOT EXISTS cases (
     slide_number      INTEGER NOT NULL,             -- номер слайда в исходной презентации
     title             TEXT,                          -- заголовок слайда (подсказка от SlideTextExtractor)
     content           TEXT,                          -- полный текст слайда (все текстовые блоки)
+    reviewer_comments TEXT,                          -- текст комментариев рецензентов к слайду (есть в pptx, наружу не отдаётся)
+    content_hash      TEXT,                          -- sha1 нормализованного текста — стабильное сопоставление слайдов при переиндексации
+    slide_object_id   TEXT,                          -- резерв: стабильный objectId слайда из Google Slides API
     site_url          TEXT,                          -- необязательная ссылка на сайт (например, кейс на сайте компании)
     is_hidden         INTEGER NOT NULL DEFAULT 0,    -- P1 §5.2.3: "не показывать", без удаления из каталога
+    is_not_case       INTEGER NOT NULL DEFAULT 0,    -- инверсная метка «это не кейс» (обложка, о компании, контакты) — из веб-интерфейса
+    tags_reviewed     INTEGER NOT NULL DEFAULT 0,    -- теги подтверждены экспертом (веб-интерфейс); не reviewed — из заметок докладчика
     added_at          TEXT    NOT NULL,              -- ISO 8601, момент подтверждения экспертом
 
     UNIQUE (source_file_id, slide_number)            -- повторная индексация той же презентации не создаёт дублей
@@ -39,15 +49,32 @@ CREATE TABLE IF NOT EXISTS tags (
     name TEXT    NOT NULL UNIQUE                      -- канонический тег (после нормализации синонимов)
 );
 
--- Многие-ко-многим: теги, подтверждённые экспертом для конкретного кейса при индексации.
+-- Многие-ко-многим: теги, присвоенные кейсу. source — откуда тег: 'notes' (перенесён
+-- из заметок докладчика при индексации) или 'expert' (подтверждён в веб-интерфейсе).
+-- Теги с source='expert' переиндексация не трогает никогда.
 CREATE TABLE IF NOT EXISTS case_tags (
     case_id INTEGER NOT NULL REFERENCES cases (id) ON DELETE CASCADE,
     tag_id  INTEGER NOT NULL REFERENCES tags (id) ON DELETE CASCADE,
+    source  TEXT    NOT NULL DEFAULT 'notes',           -- 'notes' | 'expert'
 
     PRIMARY KEY (case_id, tag_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_case_tags_tag_id ON case_tags (tag_id);
+
+-- Очередь предложенных тегов (словарь TagTaxonomy и LlmTagSuggester): предложение
+-- становится тегом только после подтверждения эксперта в веб-интерфейсе.
+-- UNIQUE (case_id, tag): отклонённое предложение не предлагается повторно.
+CREATE TABLE IF NOT EXISTS tag_suggestions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id    INTEGER NOT NULL REFERENCES cases (id) ON DELETE CASCADE,
+    tag        TEXT    NOT NULL,                       -- каноническая форма (после TagTaxonomy::normalize)
+    source     TEXT    NOT NULL,                       -- 'dict' | 'llm'
+    status     TEXT    NOT NULL DEFAULT 'pending',     -- 'pending' | 'accepted' | 'rejected'
+    created_at TEXT    NOT NULL,
+
+    UNIQUE (case_id, tag)
+);
 
 -- ============================================================
 -- P1 — статистика запросов и журнал сборок (§5.2.1, §5.2.4)

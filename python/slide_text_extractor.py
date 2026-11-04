@@ -2,16 +2,26 @@
 SlideTextExtractor (§6, §6.2 ТЗ).
 
 Вызывается из PHP-класса CasesBot\\Presentation\\SlideTextExtractor как подпроцесс.
-Читает текст слайдов (заголовок, буллеты, полный текст), заметки докладчика и картинки
-со слайда через python-pptx. Печатает в stdout JSON-массив:
-[{"slide_number": 1, "title": "...", "text": "...", "notes": "...", "is_case": true, "images": ["..."]}, ...]
+Читает текст слайдов (заголовок, буллеты, полный текст), заметки докладчика,
+комментарии рецензентов и картинки со слайда через python-pptx.
+Печатает в stdout JSON-массив:
+[{"slide_number": 1, "title": "...", "text": "...", "notes": "...", "is_case": true,
+  "images": ["..."], "comments": "..."}, ...]
 
 Слайд считается кейсом, только если в заметках к слайду есть метка CASE_MARKER
 (#кейс# по умолчанию) — так эксперт помечает слайды с кейсами прямо в PowerPoint:
 метка видна только в заметках докладчика, не в самом слайде и не в режиме показа.
 После метки в тех же заметках эксперт может сразу перечислить теги кейса
 (вида "категория:тег, категория:тег") — их разбирает PHP-сторона (Indexer).
-Картинки извлекаются только для слайдов-кейсов и только если указана папка вывода.
+Картинки извлекаются для всех слайдов (превью в веб-интерфейсе разметки),
+если указана папка вывода.
+
+Комментарии рецензентов читаются из всех форматов OOXML, которые встречаются в
+pptx-экспорте Google Slides / PowerPoint: отдельные части комментариев (связи слайда
+с reltype *comment*), threaded-комментарии и inline-комментарии старого формата
+(p:cmLst прямо в XML слайда). Текст комментариев — служебная информация: в каталоге
+он помогает эксперту и LLM при тегировании, наружу (публичные копии) не отдаётся
+(см. SlideCloner/PublicCopyBuilder).
 
 Использование: python slide_text_extractor.py <путь_к_pptx> [метка] [папка_для_картинок]
 """
@@ -21,7 +31,10 @@ import os
 import re
 import sys
 
+from lxml import etree
+
 CASE_MARKER = "#кейс#"
+P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 
 
 def slide_title(slide, texts):
@@ -38,6 +51,37 @@ def notes_text(slide):
     if not slide.has_notes_slide:
         return ""
     return slide.notes_slide.notes_text_frame.text.strip()
+
+
+def slide_comments(slide):
+    """Текст комментариев рецензентов к слайду (все форматы OOXML, разделитель — перевод строки).
+
+    Формат старых pptx (2007–2010): p:cmLst с p:cm/p:text прямо в XML слайда. Современный
+    PowerPoint и экспорт Google Slides: отдельные части, подключённые к слайду связями с
+    reltype *comment* (те же связи, что SlideCloner отсекает при санации, см. is_skipped_rel)
+    — threadingComments/comex и legacy comments/*.xml. Части различаются схемами, поэтому
+    текст собирается универсально: все текстовые узлы XML части (itertext), у p:cmLst —
+    по элементам p:cm."""
+    parts = []
+
+    for rel in slide.part.rels.values():
+        if rel.is_external or "comment" not in rel.reltype.lower():
+            continue
+        try:
+            xml = etree.fromstring(rel.target_part.blob)
+        except Exception:
+            continue
+        texts = [t.strip() for t in xml.itertext() if t and t.strip()]
+        if texts:
+            parts.append("\n".join(texts))
+
+    # Inline-комментарии старого формата — прямо в XML слайда, отдельной части для них нет.
+    for cm_lst in slide._element.findall(f".//{{{P_NS}}}cmLst"):
+        texts = [t.strip() for t in cm_lst.itertext() if t and t.strip()]
+        if texts:
+            parts.append("\n".join(texts))
+
+    return "\n".join(parts)
 
 
 def slug(value):
@@ -79,9 +123,10 @@ def extract(path, case_marker, images_dir):
 
         notes = notes_text(slide)
         is_case = case_marker.lower() in notes.lower()
+        comments = slide_comments(slide)
 
         images = []
-        if is_case and images_dir:
+        if images_dir:
             images = save_images(slide, path, index, images_dir)
 
         slides.append({
@@ -91,6 +136,7 @@ def extract(path, case_marker, images_dir):
             "notes": notes,
             "is_case": is_case,
             "images": images,
+            "comments": comments,
         })
 
     return slides

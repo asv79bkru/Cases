@@ -15,16 +15,13 @@ use Throwable;
 /**
  * Команда «кейсы»: поиск по тегам (CatalogRepository::findByTags, §5.1.3), список найденных
  * кейсов с номерами слайдов и pptx-подборка по каждой затронутой исходной презентации (§5.1.4,
- * §5.1.6 ТЗ) — все слайды без метки #кейс# (обложка, о компании, контакты) плюс найденные по
- * запросу кейсы, см. CaseDeckBuilder.
+ * §5.1.6 ТЗ) — все слайды, помеченные «не кейс» в веб-интерфейсе (обложка, о компании,
+ * контакты), плюс найденные по запросу кейсы, см. CaseDeckBuilder.
  *
  * При настроенном CaseDeckBuilder (опциональная зависимость, см. bin/poll.php) собирает и
  * отправляет pptx вложением; ссылка на оригинал целиком и номера слайдов отправляются в любом
  * случае следом (не только если сборка не удалась) — эксперт получает и готовую подборку, и
- * возможность свериться с исходником/собрать вручную. Ранее автосборка была отключена совсем —
- * у части пользователей собранные файлы не открывались в PowerPoint, причина не найдена
- * (структура OOXML при этом проверена и чиста, подозрение на передачу) — пробуем снова:
- * возможно, дело было в передаче конкретного файла, а не в самой сборке.
+ * возможность свериться с исходником/собрать вручную.
  *
  * Принимает простые теги через запятую и/или пробел, без категорий — каждое слово ищется
  * через словарь синонимов (TagTaxonomy) с резервом на прямое совпадение по названию тега
@@ -34,10 +31,16 @@ use Throwable;
  * Полноценный QueryParser (разбор произвольного свободного текста, §5.1.2) — задел на будущее,
  * пока команда ищет по отдельным словам, а не по смыслу всей фразы.
  *
+ * Минимум кейсов в подборке (MIN_SLIDES_PER_DECK): если по тегам нашлось меньше, подборка
+ * добирается «похожими» кейсами — сначала по связанным тегам (TagTaxonomy::relatedTags,
+ * config/tag-relations.php), затем — по смыслу через LlmCaseMatcher; добранные кейсы
+ * помечаются в сообщении отдельно. Присылать клиенту подборку из одного кейса — хуже, чем
+ * дополнить её близкими по теме.
+ *
  * Если ни одно слово запроса не совпало ни с одним известным тегом — при настроенном
  * LlmCaseMatcher (опциональная зависимость, см. bin/poll.php) запрос вместе с текстом всех
- * кейсов каталога уходит в LLM, которая либо подбирает ближайшие по смыслу кейсы, либо явно
- * говорит, что подходящих нет (§5.1.7 ТЗ), см. handleUnknownTags().
+ * кейсов каталога уходит в LLM, которая либо подбирает id ближайших по смыслу кейсов, либо
+ * явно говорит, что подходящих нет (§5.1.7 ТЗ), см. handleUnknownTags().
  */
 class CasesCommand implements CommandInterface
 {
@@ -52,6 +55,7 @@ class CasesCommand implements CommandInterface
         private LocalPresentationsClient $presentations,
         private TagTaxonomy $tagTaxonomy,
         private int $maxSlidesPerDeck,
+        private int $minSlidesPerDeck = 5,
         private ?LlmCaseMatcher $llmCaseMatcher = null,
         private ?CaseDeckBuilder $caseDeckBuilder = null,
     ) {
@@ -75,14 +79,99 @@ class CasesCommand implements CommandInterface
 
         $rows = $this->catalog->findByTags($tags, $this->maxSlidesPerDeck);
 
-        if ($rows === []) {
+        // В подборке должно быть не меньше MIN_SLIDES_PER_DECK кейсов — добираем похожими.
+        $similar = count($rows) < $this->minSlidesPerDeck
+            ? $this->findSimilarCases($query, $tags, $rows)
+            : [];
+
+        if ($rows === [] && $similar === []) {
             $this->vkTeamsClient->sendText($chatId, $this->noResultsMessage());
 
             return;
         }
 
-        $this->vkTeamsClient->sendText($chatId, $this->foundCasesMessage($rows));
-        $this->sendSourcePresentations($chatId, $rows);
+        $this->vkTeamsClient->sendText($chatId, $this->foundCasesMessage($rows, $similar));
+        $this->sendSourcePresentations($chatId, array_merge($rows, $similar));
+    }
+
+    /**
+     * Добор подборки до минимума, когда по тегам нашлось слишком мало кейсов:
+     * 1) связанные теги (TagTaxonomy::relatedTags) — детерминированно и без LLM;
+     * 2) если всё ещё меньше минимума и LlmCaseMatcher настроен — семантический добор:
+     *    запрос и оставшиеся кейсы каталога уходят в LLM.
+     * Добранные кейсы не повторяют уже выбранные и не превышают maxSlidesPerDeck суммарно.
+     *
+     * @param string[] $tags
+     * @param array<int, array{id: int, source_file_id: string, slide_number: int, title: ?string}> $rows
+     * @return array<int, array{id: int, source_file_id: string, slide_number: int, title: ?string}>
+     */
+    private function findSimilarCases(string $query, array $tags, array $rows): array
+    {
+        $similar = [];
+        $selectedIds = array_map(
+            static fn (array $row): int => (int) $row['id'],
+            $rows
+        );
+
+        $hasCapacity = fn (): bool => count($rows) + count($similar) < $this->maxSlidesPerDeck;
+        $needMore = fn (): bool => count($rows) + count($similar) < $this->minSlidesPerDeck;
+
+        // 1. Связанные теги: «авто» -> «автопром», «машиностроение» и т.п.
+        $related = [];
+        foreach ($tags as $tag) {
+            foreach ($this->tagTaxonomy->relatedTags($tag) as $relatedTag) {
+                if (!in_array(mb_strtolower($relatedTag), array_map('mb_strtolower', $tags), true)) {
+                    $related[mb_strtolower($relatedTag)] = $relatedTag;
+                }
+            }
+        }
+
+        if ($related !== [] && $needMore()) {
+            $candidates = $this->catalog->findByTags(array_values($related), $this->maxSlidesPerDeck);
+            foreach ($candidates as $row) {
+                if (!$needMore() || !$hasCapacity()) {
+                    break;
+                }
+                if (in_array((int) $row['id'], $selectedIds, true)) {
+                    continue;
+                }
+
+                $similar[] = $row;
+                $selectedIds[] = (int) $row['id'];
+            }
+        }
+
+        // 2. Семантический добор через LLM по оставшимся кейсам каталога.
+        if ($needMore() && $hasCapacity() && $this->llmCaseMatcher !== null) {
+            $remaining = array_filter(
+                $this->catalog->allForMatching(),
+                static fn (array $case): bool => !in_array((int) $case['id'], $selectedIds, true)
+            );
+
+            try {
+                $ids = $this->llmCaseMatcher->match($query, array_values($remaining));
+            } catch (Throwable) {
+                // LLM недоступна — отдаём то, что нашлось по тегам, без добора.
+                $ids = [];
+            }
+
+            if ($ids !== []) {
+                $candidates = $this->catalog->findByIds($ids, $this->maxSlidesPerDeck);
+                foreach ($candidates as $row) {
+                    if (!$needMore() || !$hasCapacity()) {
+                        break;
+                    }
+                    if (in_array((int) $row['id'], $selectedIds, true)) {
+                        continue;
+                    }
+
+                    $similar[] = $row;
+                    $selectedIds[] = (int) $row['id'];
+                }
+            }
+        }
+
+        return $similar;
     }
 
     /**
@@ -140,10 +229,10 @@ class CasesCommand implements CommandInterface
 
     /**
      * По каждому source_file_id, встречающемуся в найденных кейсах: пытается собрать и отправить
-     * pptx-подборку (CaseDeckBuilder — все слайды без метки #кейс# плюс найденные по запросу), и
-     * независимо от результата сборки — всегда также ссылку на оригинал презентации целиком и
-     * номера слайдов (sendOriginalLink), чтобы эксперт при желании мог свериться с исходником
-     * или собрать вручную, даже когда pptx-подборка уже пришла.
+     * pptx-подборку (CaseDeckBuilder — все слайды «не кейс» из каталога плюс найденные по
+     * запросу), и независимо от результата сборки — всегда также ссылку на оригинал презентации
+     * целиком и номера слайдов (sendOriginalLink), чтобы эксперт при желании мог свериться
+     * с исходником или собрать вручную, даже когда pptx-подборка уже пришла.
      *
      * @param array<int, array{source_file_id: string, slide_number: int}> $rows
      */
@@ -170,7 +259,11 @@ class CasesCommand implements CommandInterface
         }
 
         try {
-            $pptxPath = $this->caseDeckBuilder->build($sourceFileId, $slideNumbers);
+            $pptxPath = $this->caseDeckBuilder->build(
+                $sourceFileId,
+                $slideNumbers,
+                $this->catalog->notCaseSlideNumbers($sourceFileId)
+            );
         } catch (Throwable) {
             // Сборка pptx не удалась — sendOriginalLink ниже всё равно отдаёт эксперту рабочую
             // ссылку на оригинал, вместо того чтобы просто промолчать об ошибке.
@@ -256,19 +349,32 @@ class CasesCommand implements CommandInterface
         return array_values($tags);
     }
 
-    /** @param array<int, array{title: ?string, slide_number: int}> $rows */
-    private function foundCasesMessage(array $rows): string
+    /**
+     * Список найденных кейсов (сначала точные совпадения по тегам, затем добранные «похожие»)
+     * и пояснение, что будет в подборке ниже.
+     *
+     * @param array<int, array{title: ?string, slide_number: int}> $rows
+     * @param array<int, array{title: ?string, slide_number: int}> $similar
+     */
+    private function foundCasesMessage(array $rows, array $similar = []): string
     {
-        $lines = implode("\n", array_map(
-            static fn (array $row): string => "— слайд {$row['slide_number']}: " . ($row['title'] ?? '(без названия)'),
-            $rows
+        $lines = static fn (array $items): string => implode("\n", array_map(
+            static fn (array $row): string => '— слайд ' . $row['slide_number'] . ': ' . ($row['title'] ?? '(без названия)'),
+            $items
         ));
+
+        $message = 'Нашёл ' . count($rows) . " кейс(ов) по тегам:\n{$lines($rows)}";
+
+        if ($similar !== []) {
+            $message .= "\n\nЧтобы в подборке было не меньше {$this->minSlidesPerDeck} кейсов, "
+                . "добавил похожие по теме:\n{$lines($similar)}";
+        }
 
         $tail = $this->caseDeckBuilder !== null
             ? 'Ниже — собранная pptx-подборка с этими слайдами и ссылка на оригинал(ы) презентации целиком.'
             : 'Ниже — ссылка(и) на оригинал(ы) презентации целиком, оставьте эти слайды вручную.';
 
-        return 'Нашёл ' . count($rows) . " кейс(ов):\n{$lines}\n\n{$tail}";
+        return "{$message}\n\n{$tail}";
     }
 
     private function noResultsMessage(): string
