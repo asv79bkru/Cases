@@ -19,10 +19,42 @@ class CatalogRepository
 
         $this->pdo = new \PDO('sqlite:' . $sqlitePath);
         $this->pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        // WAL: читатели (бот, poll.php) не блокируются на время записи (переиндексация).
+        $this->pdo->exec('PRAGMA journal_mode = WAL');
+        // Ждать освобождения базы до 30 сек вместо мгновенного "database is locked".
+        $this->pdo->exec('PRAGMA busy_timeout = 30000');
         $this->pdo->exec('PRAGMA foreign_keys = ON');
 
         if ($isNew) {
             $this->pdo->exec((string) file_get_contents($schemaPath));
+        }
+    }
+
+    /**
+     * Выполняет $fn внутри одной транзакции: при любом исключении — ROLLBACK и база остаётся
+     * ровно в прежнем состоянии. Основа атомарной переиндексации (Indexer::runAutomatic):
+     * очистка + заполнение либо применяются целиком, либо не применяются вовсе — «пустого
+     * каталога» при сбое посреди прохода не бывает.
+     *
+     * @template T
+     * @param callable(): T $fn
+     * @return T
+     */
+    public function transactional(callable $fn)
+    {
+        $this->pdo->beginTransaction();
+
+        try {
+            $result = $fn();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+
+            throw $e;
         }
     }
 

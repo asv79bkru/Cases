@@ -9,6 +9,9 @@
 
 # Состояние последней синхронизации с Drive (bin/sync.php) — генерируется, на сервере своё.
 /storage/catalog/drive-sync.json
+# WAL/SHM-файлы SQLite (режим WAL) и лок переиндексации.
+/storage/catalog/*.sqlite-*
+/storage/catalog/reindex.lock
 
 /storage/incoming/*
 /storage/output/*

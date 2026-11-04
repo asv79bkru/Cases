@@ -18,6 +18,7 @@ class Reindexer
 {
     private function __construct(
         private Indexer $indexer,
+        private string $lockFile,
     ) {
     }
 
@@ -46,7 +47,12 @@ class Reindexer
             );
         }
 
-        return new self(new Indexer($presentations, $slideTextExtractor, $tagTaxonomy, $catalog, $llmTagSuggester));
+        // Лок рядом с базой (bind-mount storage/catalog) — общий для всех процессов: sync при
+        // старте контейнера и кнопка «Переиндексация» на upload.php не должны идти внахлёст.
+        return new self(
+            new Indexer($presentations, $slideTextExtractor, $tagTaxonomy, $catalog, $llmTagSuggester),
+            dirname(self::schemaPath($config)) . '/reindex.lock'
+        );
     }
 
     /** schema.sql лежит рядом с базой; относительный catalog-путь из .env считается от корня репозитория. */
@@ -63,17 +69,36 @@ class Reindexer
     }
 
     /**
-     * Переиндексирует все презентации источника (clearAll + построение заново).
+     * Переиндексирует все презентации источника (clearAll + построение заново; атомарно —
+     * очистка и вставка в одной транзакции, см. Indexer::runAutomatic). Повторный запуск,
+     * пока предыдущий не закончился, отклоняется: flock на reindex.lock, общий для sync и
+     * веб-загрузчика.
      *
      * @return array{indexed: array<int, array{file: string, slide: int, title: string, tags: string[]}>, llmErrors: string[]}
      */
     public function runAutomatic(): array
     {
-        $llmErrors = [];
-        $indexed = $this->indexer->runAutomatic(static function (string $error) use (&$llmErrors): void {
-            $llmErrors[] = $error;
-        });
+        $lock = fopen($this->lockFile, 'c');
+        if ($lock === false) {
+            throw new RuntimeException("Не удалось открыть лок-файл {$this->lockFile}.");
+        }
 
-        return ['indexed' => $indexed, 'llmErrors' => $llmErrors];
+        if (!flock($lock, LOCK_EX | LOCK_NB)) {
+            fclose($lock);
+
+            throw new RuntimeException('Переиндексация уже выполняется — дождитесь её завершения.');
+        }
+
+        try {
+            $llmErrors = [];
+            $indexed = $this->indexer->runAutomatic(static function (string $error) use (&$llmErrors): void {
+                $llmErrors[] = $error;
+            });
+
+            return ['indexed' => $indexed, 'llmErrors' => $llmErrors];
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
     }
 }

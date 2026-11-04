@@ -80,8 +80,8 @@ class Indexer
      * для тегов теперь заметки докладчика (эксперт пишет их в PowerPoint при подготовке слайда,
      * см. class-докблок), поэтому дополнительное подтверждение в самом индексаторе избыточно;
      * словарь/LLM лишь дополняют то, что уже написано в заметках. Используется веб-загрузчиком
-     * (public/upload.php) для кнопки «Запустить переиндексацию» — в отличие от run(), не требует
-     * интерактивного ввода, поэтому пригоден для вызова из HTTP-запроса.
+     * (public/upload.php) и sync-шагом Google Drive (bin/sync.php) — в отличие от run(), не
+     * требует интерактивного ввода.
      *
      * Перед обходом презентаций таблица cases полностью очищается (CatalogRepository::clearAll)
      * и собирается заново только из файлов, реально лежащих сейчас в presentations/ — иначе
@@ -89,30 +89,36 @@ class Indexer
      * source_file_id+slide_number не удаляет строки для файлов, которых больше нет) и приводят
      * к "Презентация не найдена" при попытке отдать по ним ссылку.
      *
+     * Атомарность: очистка и заполнение идут в одной транзакции (CatalogRepository::transactional)
+     * — при падении посреди прохода (битый pptx, сбой python/БД) база откатывается к прежнему
+     * полному каталогу, «пустого окна» для бота не бывает.
+     *
      * @param ?callable(string): void $onLlmError Вызывается, если LLM недоступна/вернула ошибку.
      * @return array<int, array{file: string, slide: int, title: string, tags: string[]}>
      */
     public function runAutomatic(?callable $onLlmError = null): array
     {
-        $this->catalog->clearAll();
+        return $this->catalog->transactional(function () use ($onLlmError): array {
+            $this->catalog->clearAll();
 
-        $indexed = [];
+            $indexed = [];
 
-        $this->run(
-            static function (string $fileName, array $slide, array $suggested) use (&$indexed): array {
-                $indexed[] = [
-                    'file' => $fileName,
-                    'slide' => $slide['slide_number'],
-                    'title' => $slide['title'],
-                    'tags' => $suggested,
-                ];
+            $this->run(
+                static function (string $fileName, array $slide, array $suggested) use (&$indexed): array {
+                    $indexed[] = [
+                        'file' => $fileName,
+                        'slide' => $slide['slide_number'],
+                        'title' => $slide['title'],
+                        'tags' => $suggested,
+                    ];
 
-                return ['tags' => $suggested, 'site_url' => null];
-            },
-            $onLlmError
-        );
+                    return ['tags' => $suggested, 'site_url' => null];
+                },
+                $onLlmError
+            );
 
-        return $indexed;
+            return $indexed;
+        });
     }
 
     /**
