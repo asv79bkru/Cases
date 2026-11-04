@@ -56,6 +56,31 @@ class SlideCloner
         }
     }
 
+    /**
+     * Пакет исходника минус слайды, не попавшие в $keep (заметки/комментарии вычищены) —
+     * сборка CaseDeckBuilder. В отличие от clone() пакет не пересобирается с нуля, а
+     * остаётся байт-в-байт копией исходника с удалёнными слайдами: PowerPoint такой файл
+     * открывает без ремонта (clone-сборка в принципе давала только repair-ремонт, конфликт
+     * исследован через PowerPoint COM 04.11.2026, см. slide_cloner.py). Порядок слайдов —
+     * исходный, т.е. keep должен быть отсортирован вызывающим кодом.
+     *
+     * @param int[] $keep Номера слайдов, которые остаются (1-базные, как в PowerPoint).
+     */
+    public function prune(string $sourcePath, array $keep, string $outputPath): void
+    {
+        $keep = array_values(array_map('intval', $keep));
+        sort($keep);
+
+        $result = $this->run('prune', $outputPath, [
+            'source_path' => $sourcePath,
+            'keep' => $keep,
+        ]);
+
+        if (!($result['ok'] ?? false)) {
+            throw new \RuntimeException('SlideCloner: ' . ($result['error'] ?? 'неизвестная ошибка'));
+        }
+    }
+
     /** @param array<string, mixed> $payload */
     private function run(string $mode, string $path, array $payload): array
     {

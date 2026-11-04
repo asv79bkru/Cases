@@ -23,6 +23,14 @@ id/media/layout-master, без чтения через объектную мод
       Копирует ВСЕ слайды исходника, в исходном порядке — основа "парадных" копий
       (PublicCopyBuilder): та же презентация, но уже без заметок/комментариев.
 
+  python slide_cloner.py prune <output.pptx>
+      stdin: {"source_path": "...", "keep": [N, ...]}
+      Байт-в-байт копия исходника, из которой УДАЛЕНЫ слайды, не попавшие в keep, а также
+      заметки и комментарии (связи отмечаются is_skipped_rel). В отличие от clone не
+      пересобирает пакет через новую Presentation(): структура, [Content_Types].xml,
+      мастера и media остаются исходными — PowerPoint открывает такой файл без ремонта
+      (сырой экспорт тоже открывается без ремонта, проверено PowerPoint'ом 04.11.2026).
+
   python slide_cloner.py add-title-slide <path.pptx>
       stdin: {"title": "...", "date": "..."}
       Добавляет титульный слайд первым в уже существующий path.pptx (§5.1 P0.5).
@@ -31,13 +39,13 @@ id/media/layout-master, без чтения через объектную мод
 import json
 import posixpath
 import re
+import shutil
 import sys
 
 from lxml import etree
 from pptx import Presentation
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.opc.package import PartFactory
-from pptx.opc.packuri import PackURI
 from pptx.oxml.ns import qn
 
 # Заметки и комментарии слайда не копируются — служебные пометки эксперта и переписка
@@ -83,19 +91,17 @@ def partname_template(partname):
 
 
 def next_available_partname(dest_package, template, reserved_partnames):
-    """Как dest_package.next_partname(), но учитывает reserved_partnames — имена частей,
-    созданных в рамках текущей сборки, но ещё не достижимых по связям от корня пакета
-    (слайд привязывается к sldIdLst только после полного копирования). Без этого два разных
-    исходника могли получить одинаковое dest-имя → в zip попадали два разных блоба под одним
-    именем (PowerPoint читает «последний», картинка на слайде могла отобразиться не та)."""
-    used = {str(part.partname) for part in dest_package.iter_parts()}
-    n = 1
-    while True:
-        candidate = f"{template % n}"
-        if candidate not in used and candidate not in reserved_partnames:
-            reserved_partnames.add(candidate)
-            return PackURI(candidate)
-        n += 1
+    """Имя для новой части dest-пакета.
+
+    ВНИМАНИЕ: сознательно используется python-pptx next_partname(), БЕЗ расширения
+    reserved_partnames. Вариант с учётом «резерва» (уникальные имена для ещё не
+    привязанных к sldIdLst частей) проверен и отвергнут: пакет получается структурно
+    чище (нет дублирующихся записей), но PowerPoint объявляет его повреждённым
+    (0x80070570, не открывается даже через ремонт), при старом двойном именовании
+    файл Repair-ремонтопригоден (0x80CB4404 → PowerPoint «Восстановить» → открывается).
+    Откат и исследование — в истории bisect deck_t1/deck_t2/deck_t3, 04.11.2026.
+    """
+    return dest_package.next_partname(template)
 
 
 def remap_r_attrs(element, id_map):
@@ -208,15 +214,58 @@ def clone_slides(slides_spec, output_path):
 
 
 def clone_all_slides(source_path, output_path):
-    """Клонирует все слайды исходника подряд — PublicCopyBuilder («парадные» копии).
-    Слайды определяются по sldIdLst исходника, т.е. порядок сохраняется точно."""
+    """«Парадная» копия: те же все слайды исходника через prune (пакет остаётся исходным,
+    заметки/комментарии вычищены) — PowerPoint открывает файл без ремонта. Слайды определяются
+    по sldIdLst исходника, т.е. порядок сохраняется точно."""
     source_prs = Presentation(source_path)
-    slides_spec = [
-        {"source_path": source_path, "slide_number": number}
-        for number in range(1, len(source_prs.slides._sldIdLst) + 1)
-    ]
+    total = len(source_prs.slides._sldIdLst)
 
-    return clone_slides(slides_spec, output_path)
+    return prune_slides(source_path, range(1, total + 1), output_path)
+
+
+def prune_slides(source_path, keep, output_path):
+    """Байт-в-байт копия source_path, из которой удалены слайды, не вошедшие в keep (номера по
+    sldIdLst, как в PowerPoint), а также заметки и комментарии (is_skipped_rel + p:cmLst,
+    см. strip_inline_comments). Пакет НЕ пересобирается: [Content_Types].xml, presentation.xml,
+    мастера, layout'ы, media остаются исходными — PowerPoint открывает файл без ремонта.
+
+    Удаление слайда: из presentation.xml убираем p:sldId и связь presentation-части на слайд;
+    сам слайд и его media становятся недостижимыми и python-pptx при save их не сохраняет.
+    Заметки и комментарии отвязываются от оставшихся слайдов тем же способом.
+    """
+    shutil.copyfile(source_path, output_path)
+
+    prs = Presentation(output_path)
+
+    sld_id_lst = prs.slides._sldIdLst
+    prs_part = prs.part
+    for number, sld_id in enumerate(list(sld_id_lst), start=1):
+        if number in keep:
+            # Заметки/комментарии оставшихся слайдов отвязываем: связи убираем, части
+            # выпадут при save. Инлайн-комментарии старого формата вычищаются из XML.
+            slide_part = prs_part.rels[sld_id.get(qn("r:id"))].target_part
+            for rId, rel in list(slide_part.rels.items()):
+                if is_skipped_rel(rel.reltype):
+                    slide_part.drop_rel(rId)
+            if hasattr(slide_part, "_element"):
+                strip_inline_comments(slide_part._element)
+            continue
+
+        prs_part.drop_rel(sld_id.get(qn("r:id")))
+        sld_id_lst.remove(sld_id)
+
+    # Комментарии нового формата (commentAuthors) привязаны к presentation-части.
+    for rId, rel in list(prs_part.rels.items()):
+        if is_skipped_rel(rel.reltype):
+            prs_part.drop_rel(rId)
+
+    # Автор-лист ссылается на rId комментария прямо из XML presentation — убираем узел.
+    presentation_el = prs_part._element
+    for el in presentation_el.findall(f"{{{P_NS}}}cmAuthorLst"):
+        presentation_el.remove(el)
+
+    prs.save(output_path)
+    return len(keep)
 
 
 def find_title_layout(prs):
@@ -270,6 +319,9 @@ def main():
             result = {"ok": True, "slide_count": count}
         elif mode == "clone-all":
             count = clone_all_slides(payload["source_path"], path)
+            result = {"ok": True, "slide_count": count}
+        elif mode == "prune":
+            count = prune_slides(payload["source_path"], payload["keep"], path)
             result = {"ok": True, "slide_count": count}
         elif mode == "add-title-slide":
             add_title_slide(path, payload["title"], payload["date"])

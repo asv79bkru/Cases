@@ -54,13 +54,9 @@ class CaseDeckBuilder
         }
 
         $outputPath = rtrim($this->outputDir, '/\\') . '/' . $this->generateFileName($sourceFileId);
-        $this->slideCloner->clone(
-            array_map(
-                static fn (int $slideNumber): array => ['source_path' => $sourcePath, 'slide_number' => $slideNumber],
-                $keepNumbers
-            ),
-            $outputPath
-        );
+        // prune вместо clone: пакет исходника остаётся исходным (PowerPoint открывает без
+        // ремонта), из него удаляются не попавшие в подборку слайды — порядок сохранён.
+        $this->slideCloner->prune($sourcePath, $keepNumbers, $outputPath);
 
         return $outputPath;
     }
