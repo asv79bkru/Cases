@@ -243,7 +243,11 @@ foreach ($cases as $case) {
   .chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.85rem; }
   .chip.approved { background: #eaf2fb; border: 1px solid #b3cbe8; }
   .chip.suggested { background: #fdf6e3; border: 1px dashed #d9c07a; }
-  .chip button { border: none; background: none; cursor: pointer; padding: 0 0.1rem; font-size: 0.8rem; }
+  .chip button {
+    border: none; background: none; cursor: pointer;
+    padding: 0.15rem 0.45rem; font-size: 1rem; line-height: 1;
+    min-width: 1.6rem; min-height: 1.6rem;
+  }
   .chip button.accept { color: #1a7f2e; font-weight: 700; }
   .chip button.reject { color: #b02a2a; }
   .add-tag { display: flex; gap: 0.4rem; margin-top: 0.6rem; }
@@ -385,7 +389,7 @@ function deleteTag(button) {
       <?php endif; ?>
       <div class="slide-text" onclick="this.classList.toggle('expanded')"><?= htmlspecialchars((string) ($case['content'] ?? ''), ENT_QUOTES) ?></div>
       <?php if (($case['reviewer_comments'] ?? '') !== ''): ?>
-      <div class="reviewer-comments"><b>Комментарии рецензентов (служебный комментарий, в презентацию клиенту не попадает):</b>
+      <div class="reviewer-comments"><b>Комментарии рецензентов</b> <span class="muted">(служебный комментарий, в презентацию клиенту не попадает):</span>
 <?= htmlspecialchars((string) $case['reviewer_comments'], ENT_QUOTES) ?></div>
       <?php endif; ?>
     </div>
