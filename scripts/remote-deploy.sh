@@ -11,6 +11,10 @@ CONTAINER="${CONTAINER:-cases-bot}"
 TARBALL="${TARBALL:-/tmp/casesbot-sync.tar.gz}"
 STAGING="${STAGING:-/tmp/casesbot-staging}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
+# Доп. аргументы docker build (подставляются несклеенно, по словам). Пример для
+# обхода недоступного Docker Hub, когда базовые образы уже есть локально:
+#   BUILD_EXTRA='--build-context composer=docker-image://composer:2'
+BUILD_EXTRA="${BUILD_EXTRA:-}"
 IMAGE_PREV="cases-bot:previous"
 
 echo "==> Проверка окружения"
@@ -38,7 +42,8 @@ else
     docker tag "$IMAGE" "$IMAGE_PREV" 2>/dev/null || true
     echo "==> Сборка образа $IMAGE"
     cd "$REMOTE_DIR"
-    docker build -t "$IMAGE" .
+    # shellcheck disable=SC2086 — BUILD_EXTRA намеренно разбивается на слова
+    docker build -t "$IMAGE" $BUILD_EXTRA .
 fi
 
 echo "==> Пересоздание контейнера $CONTAINER"

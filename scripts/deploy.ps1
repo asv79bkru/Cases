@@ -32,7 +32,11 @@ param(
     [string]$RemoteDir = '/home/user/cases-bot',
     [string]$Image = 'cases-bot:latest',
     [string]$Container = 'cases-bot',
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    # Доп. аргументы docker build, напр. (когда Docker Hub недоступен, а базовые
+    # образы уже вытянуты на сервер, напр. с зеркала mirror.gcr.io и тегированы):
+    #   -BuildExtra '--build-context composer=docker-image://composer:2'
+    [string]$BuildExtra = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -86,7 +90,7 @@ Invoke-Checked { scp $LocalRemoteScriptLf "${SshHost}:$RemoteDeployScript" } "sc
 $skip = if ($SkipBuild) { '1' } else { '0' }
 $modeLabel = if ($SkipBuild) { 'без сборки образа' } else { 'со сборкой образа' }
 Write-Host "==> Сервер: синхронизация и деплой ($modeLabel) ..." -ForegroundColor Cyan
-$remoteCmd = "REMOTE_DIR=$RemoteDir IMAGE=$Image CONTAINER=$Container TARBALL=$RemoteTarball SKIP_BUILD=$skip sh $RemoteDeployScript"
+$remoteCmd = "REMOTE_DIR=$RemoteDir IMAGE=$Image CONTAINER=$Container TARBALL=$RemoteTarball SKIP_BUILD=$skip BUILD_EXTRA='$BuildExtra' sh $RemoteDeployScript"
 Invoke-Checked { ssh $SshHost $remoteCmd } "удалённый деплой"
 
 Remove-Item $LocalTarball, $LocalRemoteScriptLf -ErrorAction SilentlyContinue
