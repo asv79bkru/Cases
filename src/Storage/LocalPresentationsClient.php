@@ -11,9 +11,15 @@ namespace CasesBot\Storage;
  */
 class LocalPresentationsClient
 {
+    /**
+     * $nameOverrides — имя исходника -> имя публичной копии (config['presentations']['public_name_overrides']):
+     * getPublicUrl() должен собирать ссылку на имя копии в presentations-public/, а не на имя
+     * исходника на Drive (см. PublicCopyBuilder).
+     */
     public function __construct(
         private string $folderPath,
         private string $httpBaseUrl = '',
+        private array $nameOverrides = [],
     ) {
     }
 
@@ -68,11 +74,16 @@ class LocalPresentationsClient
         }
     }
 
-    /** Прямая HTTP-ссылка на файл (см. docker/entrypoint.sh — presentations/ отдаётся на :8080). */
+    /**
+     * Прямая HTTP-ссылка на публичную копию файла (см. docker/entrypoint.sh — presentations-public/,
+     * «парадные» копии без заметок/комментариев, отдаются на :8080). Имя копии берётся из
+     * nameOverrides, если для этого исходника оно задано.
+     */
     public function getPublicUrl(string $id): string
     {
         $path = $this->getFilePath($id);
+        $publicName = $this->nameOverrides[basename($path)] ?? basename($path);
 
-        return rtrim($this->httpBaseUrl, '/') . '/' . rawurlencode(basename($path));
+        return rtrim($this->httpBaseUrl, '/') . '/' . rawurlencode($publicName);
     }
 }

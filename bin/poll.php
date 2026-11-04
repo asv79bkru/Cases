@@ -52,6 +52,7 @@ $tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
 $presentations = new LocalPresentationsClient(
     $config['presentations']['folder_path'],
     $config['presentations']['http_base_url'],
+    $config['presentations']['public_name_overrides'] ?? [],
 );
 
 // Резерв на случай, когда в запросе нет ни одного известного тега (см. CasesCommand::handleUnknownTags,

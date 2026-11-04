@@ -25,6 +25,15 @@ return [
         // presentations/ дополнительно отдаётся по HTTP (docker/entrypoint.sh, php -S :8080) —
         // прямая ссылка на исходный файл в сообщении команды «кейсы» вместо/вместе с вложением.
         'http_base_url' => $env('PRESENTATIONS_HTTP_BASE_URL', 'http://vm-docker-ba.simbirsoft:8080'),
+        // «Парадные» копии без заметок/комментариев (PublicCopyBuilder) — именно этот каталог
+        // отдаётся на :8080 для ссылок из чата; сырые исходники с заметками наружу не отдаётся.
+        'public_folder_path' => $env('PRESENTATIONS_PUBLIC_FOLDER_PATH', __DIR__ . '/../presentations-public'),
+        // Имя публичной копии, отличающееся от имени исходника: файл в presentations/ ->
+        // имя, под которым копия отдаётся в чат. Старые копии (в т.ч. под прежними именами)
+        // PublicCopyBuilder удаляет сам — в presentations-public остаётся ровно актуальный набор.
+        'public_name_overrides' => [
+            'Кейсы направления Бизнес автоматизации.pptx' => 'Экспертиза направления Бизнес автоматизации.pptx',
+        ],
     ],
     'catalog' => [
         'storage_path' => $env('CATALOG_STORAGE_PATH', __DIR__ . '/../storage/catalog/catalog.sqlite'),
@@ -38,6 +47,16 @@ return [
     ],
     // Слайд считается кейсом, только если эта метка есть в заметках докладчика (не на самом слайде).
     'case_marker' => $env('CASE_MARKER', '#кейс#'),
+    // Синхронизация из Google Drive (bin/sync.php): сервисный аккаунт (ключ в config/google/,
+    // не в git) + id презентаций Drive, за которыми следим (через запятую — если их станет несколько).
+    'google' => [
+        'service_account_json' => $env('GOOGLE_SERVICE_ACCOUNT_JSON'),
+        'presentation_ids' => array_values(array_filter(array_map('trim', explode(',', $env('GOOGLE_PRESENTATION_ID'))))),
+        'sync_state_path' => $env('SYNC_STATE_PATH', __DIR__ . '/../storage/catalog/drive-sync.json'),
+        'token_cache_path' => $env('GOOGLE_TOKEN_CACHE_PATH', __DIR__ . '/../storage/cache/google-token.json'),
+        // Интервал недельного цикла, сек (docker/entrypoint.sh). 604800 = 7 дней.
+        'sync_interval_seconds' => (int) $env('SYNC_INTERVAL_SECONDS', '604800'),
+    ],
     // LLM-провайдер для дополнения тегов по содержимому кейса (см. CasesBot\Api\Providers\ProviderFactory).
     'llm' => [
         'provider' => $env('AI_PROVIDER', 'opencodezen'),

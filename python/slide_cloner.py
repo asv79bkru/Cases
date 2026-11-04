@@ -8,13 +8,20 @@ master, theme и все связанные media копируются как е�
 id/media/layout-master, без чтения через объектную модель и пересборки (это и
 теряет SmartArt/кастомные шрифты/анимации у PHPOffice-подобных библиотек).
 
-Заметки докладчика НЕ копируются: в них могут быть внутренние метки/теги эксперта
-(#кейс#, категория:тег) — не для показа клиенту.
+Заметки докладчика и комментарии НЕ копируются: в них могут быть внутренние метки/теги
+эксперта (#кейс#, хештеги) и переписка рецензентов Google Slides — не для показа клиенту.
+Санация не затрагивает содержимое слайдов/layout/master/media: всё отсекается на уровне
+связей (reltype) или удалением отдельных элементов из XML, остальное копируется байт-в-байт.
 
 Режимы:
   python slide_cloner.py clone <output.pptx>
       stdin: {"slides": [{"source_path": "...", "slide_number": N}, ...]}
       Создаёт output.pptx из перечисленных слайдов в указанном порядке.
+
+  python slide_cloner.py clone-all <output.pptx>
+      stdin: {"source_path": "..."}
+      Копирует ВСЕ слайды исходника, в исходном порядке — основа "парадных" копий
+      (PublicCopyBuilder): та же презентация, но уже без заметок/комментариев.
 
   python slide_cloner.py add-title-slide <path.pptx>
       stdin: {"title": "...", "date": "..."}
@@ -30,10 +37,34 @@ from lxml import etree
 from pptx import Presentation
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.opc.package import PartFactory
+from pptx.opc.packuri import PackURI
 from pptx.oxml.ns import qn
 
-# Заметки слайда не копируются — служебные пометки эксперта не для клиента.
-SKIP_RELTYPES = {RT.NOTES_SLIDE}
+# Заметки и комментарии слайда не копируются — служебные пометки эксперта и переписка
+# рецензентов не для клиента. RT.NOTES_SLIDE — заметки; RT.COMMENT — комментарии «старого»
+# форматата (отдельные части comments/*.xml). Современные комментарии PowerPoint/Google
+# (threadingComments/comex) ходят со своими reltype без констант в python-pptx, поэтому
+# на подстраховку SKIP_RELTYPES дополняется is_skipped_rel() по подстроке 'comment' —
+# других легитимных reltype с этим словом в OOXML нет.
+SKIP_RELTYPES = {RT.NOTES_SLIDE, RT.COMMENTS}
+P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+
+
+def is_skipped_rel(reltype):
+    return reltype in SKIP_RELTYPES or "comment" in reltype.lower()
+
+
+def strip_inline_comments(element):
+    """Удаляет inline-комментарии старого формата (p:cmLst прямо в XML слайда, pptx 2007–2010).
+    Современный формат хранит комментарии отдельными частями и отсекается is_skipped_rel(),
+    но старые pptx тоже не должны отдаваться клиенту с пометками. Возвращает число удалённых."""
+    removed = 0
+    for cm_lst in element.findall(f".//{{{P_NS}}}cmLst"):
+        parent = cm_lst.getparent()
+        if parent is not None:
+            parent.remove(cm_lst)
+            removed += 1
+    return removed
 
 # r:* атрибуты внутри XML части, которые нужно перенаправить на новые rId при
 # копировании (встроенные картинки, гиперссылки). SmartArt/диаграммы (r:dm, r:lo,
@@ -51,6 +82,22 @@ def partname_template(partname):
     return f"{base}/{prefix}%d{ext}"
 
 
+def next_available_partname(dest_package, template, reserved_partnames):
+    """Как dest_package.next_partname(), но учитывает reserved_partnames — имена частей,
+    созданных в рамках текущей сборки, но ещё не достижимых по связям от корня пакета
+    (слайд привязывается к sldIdLst только после полного копирования). Без этого два разных
+    исходника могли получить одинаковое dest-имя → в zip попадали два разных блоба под одним
+    именем (PowerPoint читает «последний», картинка на слайде могла отобразиться не та)."""
+    used = {str(part.partname) for part in dest_package.iter_parts()}
+    n = 1
+    while True:
+        candidate = f"{template % n}"
+        if candidate not in used and candidate not in reserved_partnames:
+            reserved_partnames.add(candidate)
+            return PackURI(candidate)
+        n += 1
+
+
 def remap_r_attrs(element, id_map):
     for attr in R_ATTRS:
         for el in element.xpath(f".//*[@r:{attr}]"):
@@ -60,33 +107,38 @@ def remap_r_attrs(element, id_map):
                 el.set(key, id_map[old])
 
 
-def copy_part_and_deps(source_part, dest_package, cache):
+def copy_part_and_deps(source_part, dest_package, cache, reserved_partnames):
     """Копирует source_part и всё, от чего он (рекурсивно) зависит, в dest_package.
 
     Возвращает соответствующую часть в dest_package. Повторные вызовы для уже
     скопированной части (например, общий layout/master у нескольких слайдов из
     одной презентации) отдают закэшированный результат, а не дублируют.
+    reserved_partnames — общий на весь клон реестр имён, уже выданных в dest
+    (см. next_available_partname: iter_parts() не видит ещё не привязанные к
+    корню пакета части, поэтому next_partname() может выдать занятое имя).
     """
     cache_key = (id(source_part.package), str(source_part.partname))
     if cache_key in cache:
         return cache[cache_key]
 
-    new_partname = dest_package.next_partname(partname_template(source_part.partname))
+    new_partname = next_available_partname(dest_package, partname_template(source_part.partname), reserved_partnames)
     new_part = PartFactory(new_partname, source_part.content_type, dest_package, source_part.blob)
     cache[cache_key] = new_part  # до рекурсии — на случай циклических ссылок
 
     id_map = {}
     for rId, rel in source_part.rels.items():
-        if rel.reltype in SKIP_RELTYPES:
+        if is_skipped_rel(rel.reltype):
             continue
         if rel.is_external:
             id_map[rId] = new_part.relate_to(rel.target_ref, rel.reltype, is_external=True)
         else:
-            new_target = copy_part_and_deps(rel.target_part, dest_package, cache)
+            new_target = copy_part_and_deps(rel.target_part, dest_package, cache, reserved_partnames)
             id_map[rId] = new_part.relate_to(new_target, rel.reltype)
 
-    if id_map and hasattr(new_part, "_element"):
-        remap_r_attrs(new_part._element, id_map)
+    if hasattr(new_part, "_element"):
+        if id_map:
+            remap_r_attrs(new_part._element, id_map)
+        strip_inline_comments(new_part._element)
 
     return new_part
 
@@ -122,6 +174,7 @@ def clone_slides(slides_spec, output_path):
     dest_prs = Presentation()
     dest_package = dest_prs.part.package
     cache = {}
+    reserved_partnames = set()
     registered_masters = set()
     source_cache = {}
     size_set = False
@@ -144,7 +197,7 @@ def clone_slides(slides_spec, output_path):
         source_layout_part = source_slide_part.part_related_by(RT.SLIDE_LAYOUT)
         source_master_part = source_layout_part.part_related_by(RT.SLIDE_MASTER)
 
-        new_slide_part = copy_part_and_deps(source_slide_part, dest_package, cache)
+        new_slide_part = copy_part_and_deps(source_slide_part, dest_package, cache, reserved_partnames)
         register_master(dest_prs, dest_package, source_master_part, cache, registered_masters)
 
         rId = dest_prs.part.relate_to(new_slide_part, RT.SLIDE)
@@ -152,6 +205,18 @@ def clone_slides(slides_spec, output_path):
 
     dest_prs.save(output_path)
     return len(slides_spec)
+
+
+def clone_all_slides(source_path, output_path):
+    """Клонирует все слайды исходника подряд — PublicCopyBuilder («парадные» копии).
+    Слайды определяются по sldIdLst исходника, т.е. порядок сохраняется точно."""
+    source_prs = Presentation(source_path)
+    slides_spec = [
+        {"source_path": source_path, "slide_number": number}
+        for number in range(1, len(source_prs.slides._sldIdLst) + 1)
+    ]
+
+    return clone_slides(slides_spec, output_path)
 
 
 def find_title_layout(prs):
@@ -202,6 +267,9 @@ def main():
     try:
         if mode == "clone":
             count = clone_slides(payload["slides"], path)
+            result = {"ok": True, "slide_count": count}
+        elif mode == "clone-all":
+            count = clone_all_slides(payload["source_path"], path)
             result = {"ok": True, "slide_count": count}
         elif mode == "add-title-slide":
             add_title_slide(path, payload["title"], payload["date"])

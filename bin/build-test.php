@@ -45,7 +45,7 @@ if (!isset($argv[1])) {
 }
 
 $catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
-$presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
+$presentations = new LocalPresentationsClient($config['presentations']['folder_path'], '', $config['presentations']['public_name_overrides'] ?? []);
 $tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
 $slideCloner = new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']);
 $builder = new PresentationBuilder(

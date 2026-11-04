@@ -40,7 +40,7 @@ if (!isset($argv[1], $argv[2])) {
 $sourceFileId = $argv[1];
 $slideNumbers = array_map('intval', explode(',', $argv[2]));
 
-$presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
+$presentations = new LocalPresentationsClient($config['presentations']['folder_path'], '', $config['presentations']['public_name_overrides'] ?? []);
 $builder = new CaseDeckBuilder(
     new SlideTextExtractor($config['python']['bin'], $config['python']['slide_text_extractor'], $config['case_marker']),
     new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']),

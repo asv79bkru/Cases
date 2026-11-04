@@ -9,6 +9,8 @@ storage/catalog/images/*
 !storage/**/.gitkeep
 presentations/*
 !presentations/.gitkeep
+presentations-public/*
+!presentations-public/.gitkeep
 tests/
 docs/
 *.md

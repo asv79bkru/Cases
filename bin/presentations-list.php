@@ -33,7 +33,7 @@ if ($config['presentations']['folder_path'] === '') {
     exit(1);
 }
 
-$client = new LocalPresentationsClient($config['presentations']['folder_path']);
+$client = new LocalPresentationsClient($config['presentations']['folder_path'], '', $config['presentations']['public_name_overrides'] ?? []);
 
 foreach ($client->listPresentations() as $file) {
     printf("%s\t%s\n", $file['modifiedTime'], $file['name']);

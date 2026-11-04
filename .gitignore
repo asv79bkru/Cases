@@ -1,6 +1,15 @@
 /vendor/
 /.env
 
+# Секретный ключ сервисного аккаунта Google Drive — только локально/на сервере (см. .env.example).
+/config/google/*
+
+# Кэш OAuth-токена Google Drive (GoogleDriveClient).
+/storage/cache/*
+
+# Состояние последней синхронизации с Drive (bin/sync.php) — генерируется, на сервере своё.
+/storage/catalog/drive-sync.json
+
 /storage/incoming/*
 /storage/output/*
 /storage/logs/*
@@ -16,3 +25,7 @@ __pycache__/
 # Презентации кладутся локально/на сервер напрямую (см. deploy-скрипт), не через git — большие бинарники.
 /presentations/*
 !/presentations/.gitkeep
+
+# Публичные «парадные» копии (PublicCopyBuilder) генерируются из presentations/ на месте, не хранятся в git.
+/presentations-public/*
+!/presentations-public/.gitkeep

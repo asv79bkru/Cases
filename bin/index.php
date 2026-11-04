@@ -37,7 +37,7 @@ if (is_file($envPath)) {
 
 $config = require __DIR__ . '/../config/config.php';
 
-$presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
+$presentations = new LocalPresentationsClient($config['presentations']['folder_path'], '', $config['presentations']['public_name_overrides'] ?? []);
 $slideTextExtractor = new SlideTextExtractor(
     $config['python']['bin'],
     $config['python']['slide_text_extractor'],

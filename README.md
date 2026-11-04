@@ -7,9 +7,10 @@
 
 ```
 CasesBot/
-├── bin/                # CLI-скрипты: index.php, poll.php (VK Teams), presentations-list.php, build-test.php, deck-test.php
-├── config/             # Config, справочник тегов (TagTaxonomy), .env
+├── bin/                # CLI-скрипты: index.php, poll.php (VK Teams), presentations-list.php, build-test.php, deck-test.php, build-public.php, sync.php (Google Drive)
+├── config/             # Config, справочник тегов (TagTaxonomy), .env; config/google/ — ключ сервисного аккаунта Google (не в git)
 ├── presentations/       # Исходные .pptx — НЕ в git (см. .gitignore), заливаются на сервер отдельно при деплое
+├── presentations-public/ # «Парадные» копии (PublicCopyBuilder) — без заметок/комментариев, их отдаёт :8080; генерируются, не в git
 ├── public/              # index.php — точка входа для вебхука VK Teams (не используется, бот работает через long polling, см. bin/poll.php); upload.php — веб-загрузчик презентаций (:8081)
 ├── python/              # SlideTextExtractor / SlideCloner (python-pptx, lxml) — вызываются из PHP как подпроцесс
 ├── src/
@@ -17,8 +18,8 @@ CasesBot/
 │   ├── Bot/             # ChatBotController (диспетчер), Commands/ (по классу на команду), VkTeamsClient
 │   ├── Catalog/         # CaseItem, CatalogRepository, TagTaxonomy, Indexer, LlmTagSuggester
 │   ├── Query/           # QueryParser, Matcher
-│   ├── Presentation/    # SlideTextExtractor, SlideCloner, PresentationBuilder (PHP-обёртки)
-│   ├── Storage/         # LocalPresentationsClient (временно вместо Google Drive)
+│   ├── Presentation/    # SlideTextExtractor, SlideCloner, PresentationBuilder (PHP-обёртки), CaseDeckBuilder, PublicCopyBuilder
+│   ├── Storage/         # LocalPresentationsClient, GoogleDriveClient (сервисный аккаунт, JWT → OAuth2)
 │   └── Config.php
 ├── storage/
 │   ├── catalog/         # Каталог кейсов: catalog.sqlite + schema.sql + images/ (картинки со слайдов)
@@ -55,11 +56,30 @@ industry/product/technology/client — от категорий отказали�
 Полный текст сохраняется в `cases.content`, картинки — файлами в `storage/catalog/images/` со
 ссылками в `case_images`. Повторный запуск обновляет те же записи, не создавая дублей.
 
+## Синхронизация с Google Drive (раз в неделю)
+
+`bin/sync.php` + недельный цикл в `docker/entrypoint.sh` (`SYNC_INTERVAL_SECONDS`, по умолчанию
+604800 = 7 дней; первый прогон — сразу при старте контейнера). Источник — презентации из
+`GOOGLE_PRESENTATION_ID` (можно несколько, через запятую), доступ — сервисный аккаунт Google
+(`GOOGLE_SERVICE_ACCOUNT_JSON`, ключ в `config/google/`, папка/файл расшарены на его email).
+
+Алгоритм идемпотентен: сверяет `modifiedTime`/`md5` файла в Drive с состоянием последней
+синхронизации (`storage/catalog/drive-sync.json` — папка примонтирована, переживает рестарт
+контейнера). Ничего не изменилось — ничего не делает; изменилось — скачивает pptx (нативный
+Google Slides — через экспорт `.../export/pptx`, загруженный .pptx — как есть) в
+`presentations/` под именем из Drive, запускает переиндексацию каталога (тот же
+`Indexer::runAutomatic`, что в веб-загрузчике, через общий `Reindexer`) и пересобирает
+публичные копии. Эксперт меняет презентацию в Google Slides — раз в неделю она сама приезжает
+на сервер, каталог и «парадные» копии обновляются без его участия. Ручной запуск:
+`php bin/sync.php`, флаги `--skip-reindex` и `--force`.
+
 ## Веб-загрузчик презентаций
 
 `public/upload.php` (отдельный `php -S` на `:8081`, см. `docker/entrypoint.sh`) — простая страница
 для эксперта без консоли: загрузить `.pptx` (то же имя файла = новая версия существующей
-презентации, перезаписывает старую) и кнопкой запустить переиндексацию. Защищена HTTP Basic Auth
+презентации, перезаписывает старую) и кнопкой запустить переиндексацию. Переиндексация заодно
+пересобирает публичные копии (PublicCopyBuilder — см. «Сборка презентации»); удаление
+презентации снимает и её публичную копию. Защищена HTTP Basic Auth
 (`UPLOAD_USERNAME`/`UPLOAD_PASSWORD` в `.env`) — без обоих значений страница отказывает в доступе,
 а не открывается всем без пароля.
 
@@ -73,9 +93,16 @@ industry/product/technology/client — от категорий отказали�
 
 `SlideCloner` (`python/slide_cloner.py`) копирует слайды между презентациями на уровне сырых частей
 OOXML-пакета (python-pptx opc/package API, не через объектную модель) — слайд, его layout, master,
-theme и все media копируются как есть, с ремаппингом id/media/layout-master; заметки докладчика
-(там могут быть внутренние `#кейс#`/теги эксперта) не копируются. Проверено: форматирование
-(кастомные шрифты, цвета, размеры) сохраняется побайтово идентично оригиналу.
+theme и все media копируются как есть, с ремаппингом id/media/layout-master. Внутренние пометки
+не копируются вообще: заметки докладчика (там `#кейс#`/теги эксперта) и комментарии рецензентов
+(в т.ч. перенесённые в pptx экспортом Google Slides, старый и современный формат) отсекаются
+на уровне связей пакета / отдельных элементов XML — структура и форматирование слайдов от этого
+не меняются. Проверено: форматирование (кастомные шрифты, цвета, размеры) сохраняется
+побайтово идентично оригиналу.
+
+Важно: экспорт Google Slides → pptx может содержать части packа с разными блобами под одним
+именем (дубли выдавал старый выбор имён в SlideCloner — исправлено, имена частей раздаются
+через реестр занятых на всю сборку, `next_available_partname`).
 
 `PresentationBuilder` вызывает `SlideCloner` для нужных слайдов, затем сам добавляет титульный слайд
 (тема + дата) и сохраняет финальный файл в `storage/output/`.
@@ -86,6 +113,23 @@ theme и все media копируются как есть, с ремаппин�
 Титульный слайд не добавляется — получившийся файл читается как урезанная версия оригинала.
 PDF как формат вывода не используется — LibreOffice headless на Alpine/musl (текущий базовый образ)
 падает на старте (баг совместимости, проверено на сервере), поэтому отправляется pptx.
+
+### Публичные копии без пометок (PublicCopyBuilder)
+
+Бот, кроме вложения-подборки, присылает ссылку на оригинал презентации целиком. Оригинал
+содержит заметки и комментарии — их не должен видеть клиент, поэтому по HTTP на :8080
+(docker/entrypoint.sh) отдаётся каталог `presentations-public/`: «парадные» копии без
+заметок/комментариев — все слайды исходника в исходном порядке через
+`SlideCloner::cloneAll()`. Пересобираются после переиндексации (`public/upload.php`),
+из sync-шага Google Drive и вручную (`bin/build-public.php`).
+
+Имя копии можно переопределить независимо от имени исходника:
+`config['presentations']['public_name_overrides']` (исходник на Drive -> имя в чате), например
+копия «Кейсы направления Бизнес автоматизации.pptx» отдаётся как «Экспертиза направления
+Бизнес автоматизации.pptx». При каждой пересборке из папки удаляется всё, что не является
+актуальной копией (старые версии, прежние имена, копии удалённых исходников) — в
+`presentations-public/` остаётся ровно актуальный набор. Сырые исходники остаются только
+для индексации.
 
 Проверка `CaseDeckBuilder` без чат-интеграции:
 ```

@@ -194,8 +194,9 @@ class CasesCommand implements CommandInterface
      * Раньше файл отправлялся как вложение через VkTeamsClient::sendFile — но у собственного
      * nginx VK Teams есть лимит на размер тела запроса, и на реальном ~70МБ файле это давало
      * "413 Request Entity Too Large" ещё до бота. Ограничение на стороне самого API, обойти
-     * его нельзя — поэтому вместо вложения отдаём прямую HTTP-ссылку (presentations/ на :8080,
-     * см. docker/entrypoint.sh), которая размер не ограничивает.
+     * его нельзя — поэтому вместо вложения отдаём прямую HTTP-ссылку (presentations-public/ на
+     * :8080, «парадная» копия без заметок/комментариев, см. PublicCopyBuilder), которая размер
+     * не ограничивает.
      *
      * @param int[] $slideNumbers
      */

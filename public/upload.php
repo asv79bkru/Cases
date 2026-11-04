@@ -18,12 +18,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
-use CasesBot\Api\Providers\ProviderFactory;
-use CasesBot\Catalog\CatalogRepository;
-use CasesBot\Catalog\Indexer;
-use CasesBot\Catalog\LlmTagSuggester;
-use CasesBot\Catalog\TagTaxonomy;
-use CasesBot\Presentation\SlideTextExtractor;
+use CasesBot\Presentation\PublicCopyBuilder;
+use CasesBot\Presentation\SlideCloner;
 use CasesBot\Storage\LocalPresentationsClient;
 
 $envPath = __DIR__ . '/../.env';
@@ -66,7 +62,7 @@ function requireAuth(array $config): void
 
 requireAuth($config);
 
-$presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
+$presentations = new LocalPresentationsClient($config['presentations']['folder_path'], '', $config['presentations']['public_name_overrides'] ?? []);
 
 /** @return array{ok: bool, message: string} */
 function handleUpload(array $config): array
@@ -97,33 +93,13 @@ function handleUpload(array $config): array
 /** @return array{ok: bool, message: string} */
 function handleReindex(array $config): array
 {
-    $presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
-    $slideTextExtractor = new SlideTextExtractor(
-        $config['python']['bin'],
-        $config['python']['slide_text_extractor'],
-        $config['case_marker'],
-        $config['catalog']['images_path']
-    );
-    $tagTaxonomy = new TagTaxonomy($config['tags_taxonomy_path']);
-    $catalog = new CatalogRepository($config['catalog']['storage_path'], __DIR__ . '/../storage/catalog/schema.sql');
+    $report = \CasesBot\Catalog\Reindexer::fromConfig($config)->runAutomatic();
+    $indexed = $report['indexed'];
+    $llmErrors = $report['llmErrors'];
 
-    $llmTagSuggester = null;
-    $llmProviderName = $config['llm']['provider'];
-    $llmProviderConfig = $config['llm'][$llmProviderName] ?? [];
-    if (($llmProviderConfig['api_key'] ?? '') !== '' && ($llmProviderConfig['model'] ?? '') !== '') {
-        $llmTagSuggester = new LlmTagSuggester(
-            ProviderFactory::create($llmProviderName, $config['llm']),
-            $tagTaxonomy
-        );
-    }
-
-    $indexer = new Indexer($presentations, $slideTextExtractor, $tagTaxonomy, $catalog, $llmTagSuggester);
-
-    $llmErrors = [];
-    $indexed = $indexer->runAutomatic(static function (string $error) use (&$llmErrors): void {
-        $llmErrors[] = $error;
-    });
-
+    // Пересборка «парадных» копий (без заметок/комментариев) — они отдаются по :8080 как ссылки
+    // из чата; сырой файл с пометками наружу не выходит (см. PublicCopyBuilder).
+    $publicErrors = updatePublicCopies($config);
     $lines = array_map(
         static fn (array $row): string => htmlspecialchars(
             "{$row['file']}, слайд {$row['slide']}: " . ($row['title'] !== '' ? $row['title'] : '(без названия)')
@@ -137,14 +113,34 @@ function handleReindex(array $config): array
     if ($llmErrors !== []) {
         $message .= "\n\nLLM не смогла дополнить теги для некоторых слайдов:\n" . implode("\n", array_unique($llmErrors));
     }
+    if ($publicErrors !== []) {
+        $message .= "\n\nНе получилось пересобрать публичные копии (ссылку в чате мог получить незачищенный файл — проверьте):\n"
+            . implode("\n", $publicErrors);
+    }
 
     return ['ok' => true, 'message' => $message];
+}
+
+/** Пересобирает публичные копии презентаций; строки ошибок — наружу в отчёт страницы. @return string[] */
+function updatePublicCopies(array $config): array
+{
+    try {
+        $builder = new PublicCopyBuilder(
+            new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']),
+            $config['presentations']['folder_path'],
+            $config['presentations']['public_folder_path']
+        );
+
+        return $builder->rebuildAll($config['presentations']['public_name_overrides'] ?? [])['errors'];
+    } catch (\Throwable $e) {
+        return ["{$e->getMessage()}"];
+    }
 }
 
 /** @return array{ok: bool, message: string} */
 function handleDelete(array $config): array
 {
-    $presentations = new LocalPresentationsClient($config['presentations']['folder_path']);
+    $presentations = new LocalPresentationsClient($config['presentations']['folder_path'], '', $config['presentations']['public_name_overrides'] ?? []);
     $id = basename($_POST['file'] ?? '');
 
     if ($id === '') {
@@ -153,11 +149,18 @@ function handleDelete(array $config): array
 
     try {
         $presentations->deleteFile($id);
+        // Сырой файл удалён — публичная копия без пометок тоже больше не нужна.
+        $publicErrors = updatePublicCopies($config);
     } catch (\Throwable $e) {
         return ['ok' => false, 'message' => "Не удалось удалить «{$id}»: " . $e->getMessage()];
     }
 
-    return ['ok' => true, 'message' => "Презентация «{$id}» удалена."];
+    $message = "Презентация «{$id}» удалена.";
+    if ($publicErrors !== []) {
+        $message .= "\nНо не удалось обновить публичные копии:\n" . implode("\n", $publicErrors);
+    }
+
+    return ['ok' => true, 'message' => $message];
 }
 
 function formatFileSize(int $bytes): string

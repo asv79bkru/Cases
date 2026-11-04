@@ -42,6 +42,20 @@ class SlideCloner
         }
     }
 
+    /**
+     * Копирует все слайды исходника, в исходном порядке, с полной санацией (заметки/комментарии
+     * не копируются, см. slide_cloner.py) — основа «парадных» копий для прямых ссылок из чата
+     * (PublicCopyBuilder).
+     */
+    public function cloneAll(string $sourcePath, string $outputPath): void
+    {
+        $result = $this->run('clone-all', $outputPath, ['source_path' => $sourcePath]);
+
+        if (!($result['ok'] ?? false)) {
+            throw new \RuntimeException('SlideCloner: ' . ($result['error'] ?? 'неизвестная ошибка'));
+        }
+    }
+
     /** @param array<string, mixed> $payload */
     private function run(string $mode, string $path, array $payload): array
     {
