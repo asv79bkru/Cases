@@ -26,6 +26,8 @@ final class ProviderFactory
             'opencodezen' => new OpenCodeZenProvider(
                 $llmConfig['opencodezen']['api_key'],
                 $llmConfig['opencodezen']['model'],
+                $llmConfig['opencodezen']['base_url'] ?? '',
+                $llmConfig['opencodezen']['session_id'] ?? '',
             ),
             default => throw new InvalidArgumentException(
                 "Неизвестный провайдер чат-API: \"$name\". Доступны: ollama, opencodezen."

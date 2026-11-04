@@ -29,6 +29,12 @@ abstract class AbstractHttpChatProvider implements ChatProviderInterface
     // Название провайдера для текста ошибок, напр. "Ollama API"
     abstract protected function label(): string;
 
+    // Дополнительные HTTP-заголовки конкретного провайдера (по умолчанию — нет).
+    protected function extraHeaders(): array
+    {
+        return [];
+    }
+
     public function chat(string $systemPrompt, string $userMessage, int $timeout): string
     {
         try {
@@ -58,10 +64,12 @@ abstract class AbstractHttpChatProvider implements ChatProviderInterface
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $payload,
-            CURLOPT_HTTPHEADER     => [
+            CURLOPT_HTTPHEADER     => array_merge([
                 'Content-Type: application/json',
                 'Authorization: Bearer ' . $this->apiKey,
-            ],
+                // OpenCode просит клиентов представляться собственным User-Agent, а не именем SDK.
+                'User-Agent: CasesBot/1.0',
+            ], $this->extraHeaders()),
             CURLOPT_TIMEOUT => $timeout,
         ]);
         $body = curl_exec($ch);

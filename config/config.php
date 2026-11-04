@@ -68,6 +68,11 @@ return [
         'opencodezen' => [
             'api_key' => $env('OPENCODEZEN_API_KEY'),
             'model' => $env('OPENCODEZEN_MODEL'),
+            // Базовый URL API: pay-as-you-go по умолчанию; для подписки OpenCode Go —
+            // https://opencode.ai/zen/go/v1 (ей нужен заголовок x-opencode-session, см. ниже).
+            'base_url' => $env('OPENCODEZEN_BASE_URL', 'https://opencode.ai/zen/v1'),
+            // Стабильный id сессии для Go-эндпоинта: одна непустая строка на установку бота.
+            'session_id' => $env('OPENCODEZEN_SESSION_ID', 'casesbot'),
         ],
     ],
     'storage' => [
