@@ -317,6 +317,16 @@ function deleteTag(button) {
   </label>
   <label><input type="checkbox" id="hide-reviewed"> скрыть размеченные</label>
   <label><input type="checkbox" id="hide-not-case" checked> скрыть «не кейсы»</label>
+  <label>Поиск по тегам:
+    <input type="text" id="tag-search" list="known-tags" placeholder="тег-1, тег-2…">
+  </label>
+  <label>Логика:
+    <select id="tag-search-mode">
+      <option value="or" title="Слайд подходит, если совпадает хотя бы один тег из запроса">ИЛИ</option>
+      <option value="and" title="Слайд подходит, только если совпадают все теги из запроса">И</option>
+    </select>
+  </label>
+  <span class="muted" id="tag-search-count"></span>
 </div>
 
 <div id="cards">
@@ -463,8 +473,35 @@ function renderCard(card) {
   const hideReviewed = document.getElementById('hide-reviewed');
   const hideNotCase = document.getElementById('hide-not-case');
   const reviewed = card.dataset.reviewed === '1';
-  card.style.display = ((hideReviewed && hideReviewed.checked && reviewed) || (hideNotCase && hideNotCase.checked && notCase))
-    ? 'none' : '';
+  const reviewsHidden = (hideReviewed && hideReviewed.checked && reviewed) || (hideNotCase && hideNotCase.checked && notCase);
+  const tagsMatch = matchesTagSearch(card);
+  card.style.display = (reviewsHidden || !tagsMatch) ? 'none' : '';
+}
+
+// Поиск по тегам: запрос — список тегов через запятую. Регистр не важен, совпадение —
+// по вхождению (термин «авто» найдёт и «автопром»). Режим «И» требует совпадения всех
+// терминов на слайде, «ИЛИ» — хотя бы одного; пустой запрос ничего не скрывает.
+function matchesTagSearch(card) {
+  const search = document.getElementById('tag-search');
+  if (!search) return true;
+  const terms = search.value.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+  if (terms.length === 0) return true;
+
+  const mode = document.getElementById('tag-search-mode')?.value || 'or';
+  const tags = JSON.parse(card.dataset.tags).map((t) => t.toLowerCase());
+  const matches = (term) => tags.some((tag) => tag.includes(term));
+  return mode === 'and' ? terms.every(matches) : terms.some(matches);
+}
+
+function applyTagSearch() {
+  document.querySelectorAll('.card').forEach(renderCard);
+  const shown = [...document.querySelectorAll('.card')].filter((c) => c.style.display !== 'none').length;
+  const search = document.getElementById('tag-search');
+  const count = document.getElementById('tag-search-count');
+  if (count && search) {
+    const total = document.querySelectorAll('.card').length;
+    count.textContent = search.value.trim() ? 'найдено ' + shown + ' из ' + total : '';
+  }
 }
 
 function applyState(card, result) {
@@ -563,6 +600,10 @@ document.getElementById('hide-reviewed').addEventListener('change', () => {
 document.getElementById('hide-not-case').addEventListener('change', () => {
   document.querySelectorAll('.card').forEach(renderCard);
 });
+
+// Поиск по тегам: пересматриваем карточки на ввод и смену режима И/ИЛИ.
+document.getElementById('tag-search').addEventListener('input', applyTagSearch);
+document.getElementById('tag-search-mode').addEventListener('change', applyTagSearch);
 
 document.querySelectorAll('.card').forEach(renderCard);
 </script>
