@@ -55,6 +55,7 @@ function assertSameSet(array $expected, array $actual, string $message = ''): vo
 require __DIR__ . '/Unit/SlideMatcherTest.php';
 require __DIR__ . '/Unit/CatalogRepositoryTest.php';
 require __DIR__ . '/Unit/QueryParsingTest.php';
+require __DIR__ . '/Unit/QueryExpressionTest.php';
 
 $failed = 0;
 foreach ($GLOBALS['__tests'] as [$name, $fn]) {

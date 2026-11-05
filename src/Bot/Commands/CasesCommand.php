@@ -9,6 +9,7 @@ use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\LlmCaseMatcher;
 use CasesBot\Catalog\TagTaxonomy;
 use CasesBot\Presentation\CaseDeckBuilder;
+use CasesBot\Query\QueryParser;
 use CasesBot\Storage\LocalPresentationsClient;
 use Throwable;
 
@@ -29,8 +30,8 @@ use Throwable;
  *      кейсы ритейл
  *      кейсы производство, 1с
  *      кейсы честный знак
- * Полноценный QueryParser (разбор произвольного свободного текста, §5.1.2) — задел на будущее,
- * пока команда ищет по отдельным словам/фразам, а не по смыслу всей фразы.
+ * Разбор запроса — в QueryParser (§5.1.2), общем для чата и веб-интерфейса разметки;
+ * по смыслу всей фразы команда пока не ищет, только по отдельным словам/фразам.
  *
  * Минимум кейсов в подборке (MIN_SLIDES_PER_DECK): если по тегам нашлось меньше, подборка
  * добирается «похожими» кейсами — сначала по связанным тегам (TagTaxonomy::relatedTags,
@@ -61,6 +62,9 @@ class CasesCommand implements CommandInterface
         private ?CaseDeckBuilder $caseDeckBuilder = null,
     ) {
     }
+
+    /** Ленивый парсер запроса (§5.1.2), общий с веб-интерфейсом разметки (public/tags.php). */
+    private ?QueryParser $queryParser = null;
 
     public function matches(string $text): bool
     {
@@ -321,71 +325,21 @@ class CasesCommand implements CommandInterface
     }
 
     /**
-     * Разбивает запрос на фразы (через запятую/перевод строки) и распознаёт в них теги,
-     * в том числе СОСТАВНЫЕ: «честный знак», «асу тп» — кавычки вокруг фразы необязательны
-     * (снимаются). Внутри фразы слова сопоставляются жадно, начиная с самых длинных
-     * последовательностей: «честный знак и маркировка» -> теги «честный знак», «маркировка».
-     * Каждый фрагмент ищется сначала в словаре синонимов (TagTaxonomy::normalize), затем
-     * прямым совпадением по тегам каталога (CatalogRepository::findTagsByName). Узнавание
-     * по одному короткому слову внутри составного тега не «съедает» его соседей: «знак»
-     * сам по себе тегом не считается. Нераспознанные фрагменты молча пропускаются.
+     * Разбор запроса в список тегов — общий алгоритм перенесён в QueryParser (§5.1.2):
+     * там же его расширение операторами И/ИЛИ для веб-интерфейса. Команда «кейсы» ищет
+     * по любому из распознанных тегов (CatalogRepository::findByTags, §5.1.3).
      *
      * @return string[]
      */
     public function parseQuery(string $query): array
     {
-        $tags = [];
-
-        foreach (preg_split('/[,\n]+/u', $query) as $part) {
-            // Кавычки-ограничители вокруг фразы: «честный знак», "честный знак", „честный знак“.
-            // Именно preg_replace, а не trim($part, «...»): trim работает по БАЙТАМ и вторые
-            // байты UTF-8-кавычек (например, \xBB у ») ломают последнее слово фразы
-            // («ритейл» -> «ритей\xD0»), после чего preg_split с /u возвращает false.
-            $part = preg_replace('/^[\s«»„“”"\'’‘]+|[\s«»„“”"\'’‘]+$/u', '', $part);
-            if ($part === null || $part === '') {
-                continue;
-            }
-
-            $words = preg_split('/\s+/u', $part) ?: [];
-            $position = 0;
-
-            while ($position < count($words)) {
-                $matched = false;
-
-                // Самая длинная последовательность слов с текущей позиции — первый кандидат.
-                for ($length = count($words) - $position; $length >= 1; $length--) {
-                    $ngram = implode(' ', array_slice($words, $position, $length));
-
-                    $found = $this->matchTag($ngram);
-                    if ($found === null) {
-                        continue;
-                    }
-
-                    $tags[mb_strtolower($found)] = $found;
-                    $position += $length;
-                    $matched = true;
-                    break;
-                }
-
-                // Слово не распознано — сдвигаемся на одно слово и пробуем соседние цепочки.
-                if (!$matched) {
-                    $position++;
-                }
-            }
-        }
-
-        return array_values($tags);
+        return $this->queryParser()->parseQuery($query);
     }
 
-    /** Тег по слову/фразе: словарь синонимов, затем прямое совпадение по тегам каталога. */
-    private function matchTag(string $term): ?string
+    /** Парсер создаётся лениво — для исходных сценарийов чата он нужен не в каждом действии. */
+    private function queryParser(): QueryParser
     {
-        $term = trim($term);
-        if ($term === '') {
-            return null;
-        }
-
-        return $this->tagTaxonomy->normalize($term) ?? $this->catalog->findTagsByName($term);
+        return $this->queryParser ??= new QueryParser($this->tagTaxonomy, $this->catalog);
     }
 
     /**

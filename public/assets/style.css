@@ -230,6 +230,8 @@ td .inline { display: flex; gap: 0.4rem; padding: 0; }
   font-size: 0.9rem;
 }
 .filters label { display: inline-flex; align-items: center; gap: 0.4rem; margin: 0; }
+/* Поле поиска по тегам: свободный текст вида «ритейл И 1с, маркировка» — ширина в запас. */
+.filters input#tag-search { width: 22rem; }
 
 /* Карточка слайда */
 .card {

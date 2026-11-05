@@ -15,6 +15,10 @@ declare(strict_types=1);
  * контакты). Вкладка «Теги» — правка справочника: переименование/слияние дублей вида
  * «авто»/«автопром», счётчики покрытия кейсов.
  *
+ * Фильтры над карточками включают поиск по тегам свободным текстом с логикой «И»/«ИЛИ» —
+ * тем же алгоритмом, что и запрос «кейсы» в чате (CasesBot\Query\QueryParser); фильтрация
+ * идёт по id найденных на сервере кейсов.
+ *
  * Изменения сохраняются сразу по действию (fetch, POST + JSON). Доступ защищён тем же
  * HTTP Basic Auth, что и загрузчик (UPLOAD_USERNAME/UPLOAD_PASSWORD в .env) — без обоих
  * значений страница отказывает в доступе.
@@ -24,6 +28,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\TagTaxonomy;
+use CasesBot\Query\QueryParser;
 
 $envPath = __DIR__ . '/../.env';
 if (is_file($envPath)) {
@@ -71,6 +76,7 @@ $catalog = new CatalogRepository(
     $config['catalog']['images_path']
 );
 $taxonomy = new TagTaxonomy($config['tags_taxonomy_path'], $config['tag_relations_path'] ?? null);
+$queryParser = new QueryParser($taxonomy, $catalog);
 
 /** JSON-ответ и завершение (все POST-действия интерфейса). */
 function jsonOut(array $data): void
@@ -99,6 +105,21 @@ function cardState(CatalogRepository $catalog, int $caseId): array
             'suggestions' => $catalog->pendingSuggestionsForCase($caseId),
         ],
     ];
+}
+
+/** Поиск по тегам «как в чате» — распознавание и логика И/ИЛИ целиком в QueryParser. */
+function tagSearchState(QueryParser $queryParser, string $query): array
+{
+    $result = $queryParser->matchCaseIds($query);
+
+    $message = '';
+    if ($result['tags'] === []) {
+        $message = 'Не нашёл известных тегов в запросе — фильтр не применён, поправьте запрос.';
+    } elseif ($result['ids'] === []) {
+        $message = 'По этому запросу ничего не нашлось.';
+    }
+
+    return ['ok' => true, 'ids' => $result['ids'], 'tags' => $result['tags'], 'message' => $message];
 }
 
 // Превью слайда: картинки лежат в storage/catalog/images/ — каталог не отдан по HTTP,
@@ -162,6 +183,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'set_not_case':
             $catalog->setNotCase($caseId, ($_POST['value'] ?? '0') === '1');
             jsonOut(cardState($catalog, $caseId));
+
+        case 'tag_search':
+            jsonOut(tagSearchState($queryParser, trim((string) ($_POST['query'] ?? ''))));
 
         case 'rename_tag':
             $tagId = (int) ($_POST['tag_id'] ?? 0);
@@ -318,13 +342,8 @@ function deleteTag(button) {
   <label><input type="checkbox" id="hide-reviewed"> скрыть размеченные</label>
   <label><input type="checkbox" id="hide-not-case" checked> скрыть «не кейсы»</label>
   <label>Поиск по тегам:
-    <input type="text" id="tag-search" list="known-tags" placeholder="тег-1, тег-2…">
-  </label>
-  <label>Логика:
-    <select id="tag-search-mode">
-      <option value="or" title="Слайд подходит, если совпадает хотя бы один тег из запроса">ИЛИ</option>
-      <option value="and" title="Слайд подходит, только если совпадают все теги из запроса">И</option>
-    </select>
+    <input type="text" id="tag-search" list="known-tags" placeholder="ритейл И 1с, маркировка"
+           title="Свободный текст, поиск работает по тем же правилам, что и запрос «кейсы» в чате: словарь синонимов, составные теги («честный знак»). «И» — обязательны все теги, «ИЛИ» или запятая — достаточно любого; «И» связывает сильнее «ИЛИ».">
   </label>
   <span class="muted" id="tag-search-count"></span>
 </div>
@@ -478,30 +497,13 @@ function renderCard(card) {
   card.style.display = (reviewsHidden || !tagsMatch) ? 'none' : '';
 }
 
-// Поиск по тегам: запрос — список тегов через запятую. Регистр не важен, совпадение —
-// по вхождению (термин «авто» найдёт и «автопром»). Режим «И» требует совпадения всех
-// терминов на слайде, «ИЛИ» — хотя бы одного; пустой запрос ничего не скрывает.
+// Поиск по тегам: распознавание и логика И/ИЛИ — на сервере, тем же кодом, что у команды
+// «кейсы» в чате (словарь синонимов TagTaxonomy, составные теги, CatalogRepository::findByTags).
+// Сюда приходит только итог — распознанные теги и id кейсов; null значит «фильтр не активен».
+let SEARCH_IDS = null;
+
 function matchesTagSearch(card) {
-  const search = document.getElementById('tag-search');
-  if (!search) return true;
-  const terms = search.value.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
-  if (terms.length === 0) return true;
-
-  const mode = document.getElementById('tag-search-mode')?.value || 'or';
-  const tags = JSON.parse(card.dataset.tags).map((t) => t.toLowerCase());
-  const matches = (term) => tags.some((tag) => tag.includes(term));
-  return mode === 'and' ? terms.every(matches) : terms.some(matches);
-}
-
-function applyTagSearch() {
-  document.querySelectorAll('.card').forEach(renderCard);
-  const shown = [...document.querySelectorAll('.card')].filter((c) => c.style.display !== 'none').length;
-  const search = document.getElementById('tag-search');
-  const count = document.getElementById('tag-search-count');
-  if (count && search) {
-    const total = document.querySelectorAll('.card').length;
-    count.textContent = search.value.trim() ? 'найдено ' + shown + ' из ' + total : '';
-  }
+  return SEARCH_IDS === null || SEARCH_IDS.includes(Number(card.dataset.id));
 }
 
 function applyState(card, result) {
@@ -601,9 +603,48 @@ document.getElementById('hide-not-case').addEventListener('change', () => {
   document.querySelectorAll('.card').forEach(renderCard);
 });
 
-// Поиск по тегам: пересматриваем карточки на ввод и смену режима И/ИЛИ.
-document.getElementById('tag-search').addEventListener('input', applyTagSearch);
-document.getElementById('tag-search-mode').addEventListener('change', applyTagSearch);
+// Поиск по тегам: запрос уходит на сервер с небольшой паузой после остановки ввода.
+let tagSearchTimer = null;
+document.getElementById('tag-search').addEventListener('input', () => {
+  clearTimeout(tagSearchTimer);
+  tagSearchTimer = setTimeout(runTagSearch, 250);
+});
+
+function runTagSearch() {
+  const query = document.getElementById('tag-search').value.trim();
+  const count = document.getElementById('tag-search-count');
+
+  if (query === '') {
+    SEARCH_IDS = null;
+    document.querySelectorAll('.card').forEach(renderCard);
+    count.textContent = '';
+    return;
+  }
+
+  api('tag_search', { query }).then((result) => {
+    if (!result.ok) {
+      SEARCH_IDS = [];
+      count.textContent = result.error || 'ошибка поиска';
+      return;
+    }
+
+    // Запрос без известных тегов ничего не скрывает (иначе все карточки исчезнут из виду
+    // до того, как пользователь разберётся, что не так) — просто показываем подсказку.
+    SEARCH_IDS = result.tags.length === 0 ? null : result.ids;
+    document.querySelectorAll('.card').forEach(renderCard);
+
+    if (result.message) {
+      count.textContent = result.message;
+      return;
+    }
+
+    const cards = document.querySelectorAll('.card');
+    const shown = [...cards].filter((card) => card.style.display !== 'none').length;
+    const recognized = result.tags.length ? 'теги: ' + result.tags.join(', ') + ' — ' : '';
+    count.textContent = recognized + 'найдено ' + shown + ' из ' + cards.length
+      + ' (по каталогу ' + result.ids.length + ')';
+  });
+}
 
 document.querySelectorAll('.card').forEach(renderCard);
 </script>
