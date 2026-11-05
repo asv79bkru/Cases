@@ -58,8 +58,9 @@ return [
         // Итог последнего прогона синхронизации (bin/sync.php пишет, public/upload.php показывает):
         'sync_status_path' => $env('SYNC_STATUS_PATH', __DIR__ . '/../storage/catalog/drive-sync-status.json'),
         'token_cache_path' => $env('GOOGLE_TOKEN_CACHE_PATH', __DIR__ . '/../storage/cache/google-token.json'),
-        // Интервал недельного цикла, сек (docker/entrypoint.sh). 604800 = 7 дней.
-        'sync_interval_seconds' => (int) $env('SYNC_INTERVAL_SECONDS', '604800'),
+        // Окно ежесуточного запуска (docker/entrypoint.sh), часы МСК: с 20:00 до 07:00 следующего дня.
+        'sync_window_start_msk' => (int) $env('SYNC_WINDOW_START_MSK', '20'),
+        'sync_window_end_msk' => (int) $env('SYNC_WINDOW_END_MSK', '7'),
     ],
     // LLM-провайдер для дополнения тегов по содержимому кейса (см. CasesBot\Api\Providers\ProviderFactory).
     'llm' => [
