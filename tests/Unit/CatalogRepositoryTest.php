@@ -286,3 +286,39 @@ test('syncNotesTags обновляет notes-теги, не трогая экс�
 
     dropRepository($catalog, $path);
 });
+
+test('findByTags находит кейсы независимо от регистра тега и запроса (кириллица)', function (): void {
+    $path = sys_get_temp_dir() . '/casesbot-test-' . uniqid('', true) . '.sqlite';
+    if (is_file($path)) {
+        dropRepository($catalog, $path);
+    }
+    $catalog = makeRepository($path);
+
+    // Теги в базе вводились в разных регистрах — как было удобнее эксперту.
+    $zupId = $catalog->insertCase(
+        new CasesBot\Catalog\CaseItem(null, 'f.pptx', 'f.pptx', 1, 'Кейс ЗУП', 'Текст', [], [], date(DATE_ATOM), null, false, null, SlideMatcher::contentHash('Кейс ЗУП', 'Текст'), false),
+        false,
+        ['ЗУП']
+    );
+    $oilId = $catalog->insertCase(
+        new CasesBot\Catalog\CaseItem(null, 'f.pptx', 'f.pptx', 2, 'Кейс нефтегаз', 'Текст', [], [], date(DATE_ATOM), null, false, null, SlideMatcher::contentHash('Кейс нефтегаз', 'Текст'), false),
+        false,
+        ['нефтегаз']
+    );
+    // Регистровый дубль того же тега на другом кейсе — оба варианта засчитываются как совпадение.
+    $catalog->attachTags($oilId, ['Нефтегаз'], 'notes');
+
+    // Запрос — строчными (как из чата), тег в базе — с заглавной.
+    $found = $catalog->findByTags(['зуп']);
+    assertSame(1, count($found));
+    assertSame($zupId, (int) $found[0]['id']);
+
+    $found = $catalog->findByTags(['НЕФТЕГАЗ']);
+    assertSame(1, count($found), 'регистр запроса не влияет на поиск');
+    assertSame($oilId, (int) $found[0]['id']);
+    assertSame(2, (int) $found[0]['match_count'], 'регистровые варианты одного тега считаются совпадениями одного тега');
+
+    assertSame([], $catalog->findByTags(['несуществующий-тег']));
+
+    dropRepository($catalog, $path);
+});

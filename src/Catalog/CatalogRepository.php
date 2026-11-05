@@ -813,27 +813,50 @@ class CatalogRepository
      * (§5.1.3 ТЗ). Кейс попадает в выдачу, если совпал хотя бы один тег из $tags.
      * Слайды, помеченные «не кейс» (обложка, о компании), в выдачу не попадают.
      *
+     * Сопоставление регистра НЕ зависит: теги вводятся экспертом в любом регистре, а запрос
+     * из чата — как удобно пользователю. Сравнение делается в PHP (mb_strtolower, а не SQL
+     * LOWER() — SQLite не приводит к строчному регистру кириллицу), в SQL уходит только id.
+     *
      * @param string[] $tags
      * @return array<int, array{id: int, source_file_id: string, slide_number: int, title: ?string, match_count: int}>
      */
     public function findByTags(array $tags, int $limit = 0): array
     {
-        if ($tags === []) {
+        $requested = [];
+        foreach ($tags as $tag) {
+            $tag = trim((string) $tag);
+            if ($tag !== '') {
+                $requested[mb_strtolower($tag)] = true;
+            }
+        }
+        if ($requested === []) {
+            return [];
+        }
+
+        // Имена тегов в базе — в любом регистре (и неприводимом SQL-ом); резолвим запрос
+        // в id реальных тегов регистронезависимо.
+        $tagIds = [];
+        foreach ($this->pdo->query('SELECT id, name FROM tags') as $row) {
+            if (isset($requested[mb_strtolower((string) $row['name'])])) {
+                $tagIds[] = (int) $row['id'];
+            }
+        }
+        if ($tagIds === []) {
             return [];
         }
 
         $placeholders = [];
         $params = [];
-        foreach ($tags as $i => $tag) {
+        foreach ($tagIds as $i => $tagId) {
             $placeholders[] = ":tag{$i}";
-            $params["tag{$i}"] = $tag;
+            $params["tag{$i}"] = $tagId;
         }
 
         $sql = 'SELECT c.id, c.source_file_id, c.slide_number, c.title, COUNT(*) AS match_count
                 FROM cases c
                 JOIN case_tags ct ON ct.case_id = c.id
                 JOIN tags t ON t.id = ct.tag_id
-                WHERE c.is_hidden = 0 AND c.is_not_case = 0 AND t.name IN (' . implode(', ', $placeholders) . ')
+                WHERE c.is_hidden = 0 AND c.is_not_case = 0 AND t.id IN (' . implode(', ', $placeholders) . ')
                 GROUP BY c.id
                 ORDER BY match_count DESC, c.id ASC';
 
