@@ -202,6 +202,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     };
 }
 
+/**
+ * Итог последнего автоматического прогона Google Drive sync (bin/sync.php) — карточка на странице.
+ * @return ?array{run_at_text: string, label: string, badge: string, downloaded: string[], errors: string[]}
+ */
+function loadSyncStatus(array $config): ?array
+{
+    $path = $config['google']['sync_status_path'] ?? '';
+    if ($path === '' || !is_file($path)) {
+        return null;
+    }
+
+    $decoded = json_decode((string) file_get_contents($path), true);
+    if (!is_array($decoded) || !is_string($decoded['run_at'] ?? null)) {
+        return null;
+    }
+
+    // Контейнер живёт в UTC, эксперту показываем время в МСК (см. entrypoint.sh про UTC+3).
+    $runAt = DateTimeImmutable::createFromFormat(DATE_ATOM, $decoded['run_at']);
+    $runAtText = $runAt !== false
+        ? $runAt->setTimezone(new DateTimeZone('Europe/Moscow'))->format('d.m.Y, H:i') . ' МСК'
+        : $decoded['run_at'];
+
+    $labels = [
+        'ok' => ['Завершена успешно', 'ok'],
+        'no_changes' => ['Изменений в Google Drive нет', 'dim'],
+        'error' => ['Завершена с ошибками', 'warn'],
+    ];
+    [$label, $badge] = $labels[$decoded['status'] ?? ''] ?? ['Неизвестный статус', 'dim'];
+
+    $strings = static fn (mixed $rows): array => array_values(
+        array_filter(is_array($rows) ? $rows : [], static fn (mixed $row): bool => is_string($row) && $row !== '')
+    );
+
+    return [
+        'run_at_text' => $runAtText,
+        'label' => $label,
+        'badge' => $badge,
+        'downloaded' => $strings($decoded['downloaded'] ?? []),
+        'errors' => $strings($decoded['errors'] ?? []),
+    ];
+}
+
+$syncStatus = loadSyncStatus($config);
 $files = $presentations->listPresentations();
 
 ?><!doctype html>
@@ -235,6 +278,20 @@ $files = $presentations->listPresentations();
   <p>После загрузки новой версии запустите переиндексацию каталога:</p>
   <button type="submit" name="action" value="reindex">Запустить переиндексацию</button>
 </form>
+
+<?php if ($syncStatus !== null): ?>
+<div class="panel">
+  <p>Последняя автоматическая загрузка из Google Drive (ежесуточная синхронизация):</p>
+  <p><strong><?= htmlspecialchars($syncStatus['run_at_text'], ENT_QUOTES) ?></strong>
+    <span class="badge <?= $syncStatus['badge'] ?>"><?= htmlspecialchars($syncStatus['label'], ENT_QUOTES) ?></span></p>
+  <?php if ($syncStatus['downloaded'] !== []): ?>
+  <p>Скачаны новые версии: <?= htmlspecialchars(implode(', ', $syncStatus['downloaded']), ENT_QUOTES) ?></p>
+  <?php endif; ?>
+  <?php if ($syncStatus['errors'] !== []): ?>
+  <p style="white-space: pre-wrap">Ошибки прогона: <?= htmlspecialchars(implode("\n", $syncStatus['errors']), ENT_QUOTES) ?></p>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
 
 <h2>Презентации на сервере</h2>
 <table>

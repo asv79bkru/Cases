@@ -55,6 +55,8 @@ return [
         'service_account_json' => $env('GOOGLE_SERVICE_ACCOUNT_JSON'),
         'presentation_ids' => array_values(array_filter(array_map('trim', explode(',', $env('GOOGLE_PRESENTATION_ID'))))),
         'sync_state_path' => $env('SYNC_STATE_PATH', __DIR__ . '/../storage/catalog/drive-sync.json'),
+        // Итог последнего прогона синхронизации (bin/sync.php пишет, public/upload.php показывает):
+        'sync_status_path' => $env('SYNC_STATUS_PATH', __DIR__ . '/../storage/catalog/drive-sync-status.json'),
         'token_cache_path' => $env('GOOGLE_TOKEN_CACHE_PATH', __DIR__ . '/../storage/cache/google-token.json'),
         // Интервал недельного цикла, сек (docker/entrypoint.sh). 604800 = 7 дней.
         'sync_interval_seconds' => (int) $env('SYNC_INTERVAL_SECONDS', '604800'),

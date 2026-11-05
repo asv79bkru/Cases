@@ -45,6 +45,33 @@ if (is_file($envPath)) {
 
 $config = require __DIR__ . '/../config/config.php';
 
+/** Записывает итог прогона в sync_status_path (drive-sync-status.json) — его показывает upload.php. */
+function writeSyncStatus(array $config, array $changed, array $errors): void
+{
+    $statusPath = $config['google']['sync_status_path'] ?? '';
+    if ($statusPath === '' || !is_writable(dirname($statusPath))) {
+        return;
+    }
+
+    $status = match (true) {
+        $errors !== [] => 'error',
+        $changed === [] => 'no_changes',
+        default => 'ok',
+    };
+
+    try {
+        @file_put_contents(
+            $statusPath,
+            json_encode(
+                ['status' => $status, 'run_at' => date(DATE_ATOM), 'downloaded' => $changed, 'errors' => $errors],
+                JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR
+            )
+        );
+    } catch (Throwable) {
+        // Статус — вспомогательная информация: неудачная запись не должна ломать сам sync.
+    }
+}
+
 $skipReindex = in_array('--skip-reindex', $argv, true);
 $force = in_array('--force', $argv, true);
 
@@ -158,6 +185,9 @@ if ($changed !== []) {
         $errors[] = "Публичные копии: {$e->getMessage()}";
     }
 }
+
+// Итог прогона — в файл статуса (его показывает веб-загрузчик), независимо от того, были ошибки или нет.
+writeSyncStatus($config, $changed, $errors);
 
 if ($errors !== []) {
     fwrite(STDERR, "sync: ошибки:\n" . implode("\n", $errors) . "\n");
