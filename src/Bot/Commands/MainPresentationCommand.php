@@ -35,8 +35,8 @@ class MainPresentationCommand implements CommandInterface
     /** Тег, которым эксперт отмечает слайды, попадающие в основную презентацию. */
     private const MAIN_TAG = 'основной';
 
-    /** Текст ссылки в чате — фиксированный, одинаковый для любого файла. */
-    private const LINK_TEXT = 'Скачать презентацию Экспертиза направления Бизнес-автоматизации';
+    /** Текст ссылки в чате — фиксированный, совпадает с именем презентации. */
+    private const LINK_TEXT = 'Экспертиза направления Бизнес-автоматизации';
 
     public function __construct(
         private VkTeamsClient $vkTeamsClient,
@@ -85,27 +85,20 @@ class MainPresentationCommand implements CommandInterface
                 continue;
             }
 
-            $this->sendDeckLink($chatId, $sourceFileId, $slideNumbers);
+            $this->sendDeckLink($chatId, $sourceFileId);
         }
     }
 
     /**
-     * Ссылка на собранную основную презентацию: в тексте — номера слайдов «основных» кейсов
-     * (служебные слайды «не кейс» в подборку тоже входят, перечислять их незачем).
-     *
-     * @param int[] $slideNumbers
+     * Ссылка без текста-обрамления: одна кликабельная строка «Экспертиза направления
+     * Бизнес-автоматизации» (имя файла), больше ничего.
      */
-    private function sendDeckLink(string $chatId, string $sourceFileId, array $slideNumbers): void
+    private function sendDeckLink(string $chatId, string $sourceFileId): void
     {
         $url = $this->presentations->getPublicUrlByName($this->mainPresentationBuilder->deckName($sourceFileId));
         $link = '<a href="' . htmlspecialchars($url, ENT_QUOTES) . '">'
             . htmlspecialchars(self::LINK_TEXT, ENT_QUOTES) . '</a>';
 
-        $this->vkTeamsClient->sendHtml(
-            $chatId,
-            'Основная презентация направления — собрана из слайдов с тегом «'
-                . htmlspecialchars(self::MAIN_TAG, ENT_QUOTES) . '» ('
-                . implode(', ', $slideNumbers) . "):\n{$link}"
-        );
+        $this->vkTeamsClient->sendHtml($chatId, $link);
     }
 }
