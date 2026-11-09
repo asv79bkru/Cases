@@ -176,7 +176,10 @@ if ($changed !== []) {
             new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']),
             $config['presentations']['folder_path'],
             $config['presentations']['public_folder_path']
-        ))->rebuildAll($config['presentations']['public_name_overrides'] ?? []);
+        ))->rebuildAll(
+            $config['presentations']['public_name_overrides'] ?? [],
+            array_values($config['presentations']['main_name_overrides'] ?? [])
+        );
         fwrite(STDOUT, 'sync: публичные копии пересобраны: ' . count($publicReport['built']) . " шт.\n");
         foreach ($publicReport['errors'] as $publicError) {
             $errors[] = "Публичная копия: {$publicError}";

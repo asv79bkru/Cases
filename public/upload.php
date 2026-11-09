@@ -150,7 +150,10 @@ function updatePublicCopies(array $config): array
             $config['presentations']['public_folder_path']
         );
 
-        return $builder->rebuildAll($config['presentations']['public_name_overrides'] ?? [])['errors'];
+        return $builder->rebuildAll(
+            $config['presentations']['public_name_overrides'] ?? [],
+            array_values($config['presentations']['main_name_overrides'] ?? [])
+        )['errors'];
     } catch (\Throwable $e) {
         return ["{$e->getMessage()}"];
     }

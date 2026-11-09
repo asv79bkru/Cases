@@ -81,9 +81,27 @@ class LocalPresentationsClient
      */
     public function getPublicUrl(string $id): string
     {
-        $path = $this->getFilePath($id);
-        $publicName = $this->nameOverrides[basename($path)] ?? basename($path);
+        return $this->getPublicUrlByName($this->getPublicName($id));
+    }
 
-        return rtrim($this->httpBaseUrl, '/') . '/' . rawurlencode($publicName);
+    /**
+     * «Парадное» имя публичной копии исходника (nameOverrides, см. PublicCopyBuilder) —
+     * имя файла, под которым копия отдаётся в чат (для текущего каталога —
+     * «Экспертиза направления. Все кейса.pptx»).
+     */
+    public function getPublicName(string $id): string
+    {
+        $path = $this->getFilePath($id);
+
+        return basename($this->nameOverrides[basename($path)] ?? basename($path));
+    }
+
+    /**
+     * Прямая HTTP-ссылка на файл в public-каталоге по имени файла (не обязательно имени
+     * исходника) — для производных копий, собираемых ботом (MainPresentationBuilder).
+     */
+    public function getPublicUrlByName(string $publicName): string
+    {
+        return rtrim($this->httpBaseUrl, '/') . '/' . rawurlencode(basename($publicName));
     }
 }

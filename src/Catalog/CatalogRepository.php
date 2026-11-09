@@ -809,6 +809,65 @@ class CatalogRepository
     }
 
     /**
+     * Видимые кейсы с заданным тегом, сгруппированные по исходной презентации —
+     * основа для презентации с «основными» слайдами направления (MainPresentationCommand,
+     * команда /main_presentation). Регистр тега не важен: сравнение в PHP (mb_strtolower),
+     * как в findByTags(), — SQLite не приводит к строчному регистру кириллицу. Совпадают
+     * ВСЕ регистровые варианты тега (теги вводились экспертом в любом регистре, см.
+     * findOrCreateTag — имя тега уникально «как ввели», регистровые дубли живут рядом).
+     *
+     * @return array<string, array{source_file_id: string, source_file_name: string, slide_numbers: int[]}>
+     */
+    public function slidesByTag(string $tag): array
+    {
+        $needle = mb_strtolower(trim($tag));
+        if ($needle === '') {
+            return [];
+        }
+
+        $tagIds = [];
+        foreach ($this->pdo->query('SELECT id, name FROM tags') as $row) {
+            if (mb_strtolower((string) $row['name']) === $needle) {
+                $tagIds[] = (int) $row['id'];
+            }
+        }
+
+        if ($tagIds === []) {
+            return [];
+        }
+
+        $placeholders = [];
+        $params = [];
+        foreach ($tagIds as $i => $tagId) {
+            $placeholders[] = ":tag{$i}";
+            $params["tag{$i}"] = $tagId;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT c.source_file_id, c.source_file_name, c.slide_number
+             FROM cases c
+             JOIN case_tags ct ON ct.case_id = c.id
+             WHERE ct.tag_id IN (' . implode(', ', $placeholders) . ')
+                AND c.is_hidden = 0 AND c.is_not_case = 0
+             ORDER BY c.source_file_id, c.slide_number'
+        );
+        $stmt->execute($params);
+
+        $groups = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $key = (string) $row['source_file_id'];
+            $groups[$key] ??= [
+                'source_file_id' => $key,
+                'source_file_name' => (string) $row['source_file_name'],
+                'slide_numbers' => [],
+            ];
+            $groups[$key]['slide_numbers'][] = (int) $row['slide_number'];
+        }
+
+        return $groups;
+    }
+
+    /**
      * Ищет и ранжирует кейсы по совпавшим тегам: сначала — кейсы с бо́льшим числом совпадений
      * (§5.1.3 ТЗ). Кейс попадает в выдачу, если совпал хотя бы один тег из $tags.
      * Слайды, помеченные «не кейс» (обложка, о компании), в выдачу не попадают.

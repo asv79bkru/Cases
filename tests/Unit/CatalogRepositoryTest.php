@@ -322,3 +322,59 @@ test('findByTags находит кейсы независимо от регис�
 
     dropRepository($catalog, $path);
 });
+
+test('slidesByTag группирует слайды тега по исходникам, не учитывая регистр, скрытые и «не кейс»', function (): void {
+    $path = sys_get_temp_dir() . '/casesbot-test-' . uniqid('', true) . '.sqlite';
+    if (is_file($path)) {
+        dropRepository($catalog, $path);
+    }
+    $catalog = makeRepository($path);
+
+    // Регистровые варианты одного тега на разных видимых кейсах — оба засчитываются.
+    //Слайд «не кейс» и слайд с другим тегом в основную презентацию не попадают.
+    $insert = static function (string $file, int $number, string $tag) use ($catalog): int {
+        $isNotCase = $number === 6;
+
+        return $catalog->insertCase(
+            new CasesBot\Catalog\CaseItem(
+                null,
+                $file,
+                $file,
+                $number,
+                "Слайд {$number}",
+                'Текст',
+                [],
+                [],
+                date(DATE_ATOM),
+                null,
+                false,
+                null,
+                SlideMatcher::contentHash("Слайд {$number}", 'Текст')
+            ),
+            $isNotCase,
+            [$tag]
+        );
+    };
+
+    $insert('a.pptx', 3, 'основной');
+    $insert('a.pptx', 4, 'Основной');
+    // Скрытый слайд (is_hidden пока ни один сценарий не пишет, помечаем напрямую)
+    // и слайд «не кейс» с тем же тегом в основную презентацию не попадают.
+    $insert('a.pptx', 5, 'основной');
+    $insert('a.pptx', 6, 'основной');
+    $insert('b.pptx', 7, 'основной');
+    $insert('b.pptx', 8, 'не тот');
+
+    $db = new PDO('sqlite:' . $path);
+    $db->exec("UPDATE cases SET is_hidden = 1 WHERE source_file_id = 'a.pptx' AND slide_number = 5");
+
+    $groups = $catalog->slidesByTag('ОСНОВНОЙ');
+    assertSameSet(['a.pptx', 'b.pptx'], array_keys($groups));
+    assertSame([3, 4], $groups['a.pptx']['slide_numbers']);
+    assertSame([7], $groups['b.pptx']['slide_numbers']);
+
+    assertSame([], $catalog->slidesByTag('не существующий'));
+    assertSame([], $catalog->slidesByTag('  '));
+
+    dropRepository($catalog, $path);
+});

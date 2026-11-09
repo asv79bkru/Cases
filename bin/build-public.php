@@ -41,7 +41,10 @@ $builder = new PublicCopyBuilder(
     $config['presentations']['public_folder_path']
 );
 
-$report = $builder->rebuildAll($config['presentations']['public_name_overrides'] ?? []);
+$report = $builder->rebuildAll(
+    $config['presentations']['public_name_overrides'] ?? [],
+    array_values($config['presentations']['main_name_overrides'] ?? [])
+);
 
 fwrite(STDOUT, "Публичные копии пересобраны: " . count($report['built']) . " шт.\n");
 foreach ($report['built'] as $name) {

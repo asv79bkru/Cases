@@ -34,14 +34,18 @@ class PublicCopyBuilder
      *
      * $nameOverrides — имя исходника -> имя копии (config['presentations']['public_name_overrides']):
      * копия из презентации Google Drive отдаётся в чат под «парадным» именем, а не под именем
-     * файла на Drive. Всё, что оказалось в public-каталоге, но не является актуальной копией
-     * (старые версии, копии удалённых/переименованных исходников, прежние имена), удаляется —
-     * в папке остаются ровно актуальные копии, по одной на каждый исходник.
+     * файла на Drive. $preserveNames — имена файлов, которые очистка public-каталога не
+     * удаляет: основные презентации направления (config['presentations']['main_name_overrides'],
+     * MainPresentationBuilder, команда /main_presentation). Всё, что оказалось в public-каталоге,
+     * но не является актуальной копией (старые версии, копии удалённых/переименованных
+     * исходников, прежние имена), удаляется — в папке остаются ровно актуальный набор
+     * полных копий и основные презентации.
      *
      * @param array<string, string> $nameOverrides
+     * @param array<int, string> $preserveNames
      * @return array{built: array<int, string>, removed: array<int, string>, errors: array<int, string>}
      */
-    public function rebuildAll(array $nameOverrides = []): array
+    public function rebuildAll(array $nameOverrides = [], array $preserveNames = []): array
     {
         $built = [];
         $errors = [];
@@ -90,10 +94,18 @@ class PublicCopyBuilder
         $removed = [];
         foreach (glob(rtrim($this->publicDir, '/\\') . '/*.pptx') ?: [] as $path) {
             $name = basename($path);
-            if (!isset($targetNames[$name])) {
-                @unlink($path);
-                $removed[] = $name;
+            if (isset($targetNames[$name])) {
+                continue;
             }
+            // Основные презентации направления собирает MainPresentationBuilder
+            // (/main_presentation) — тоже легальные жители public-каталога: ссылка на них
+            // из чата должна переживать пересборку «парадных» копий. Их жизненным циклом
+            // управляет сам сборщик, не эта очистка.
+            if (in_array($name, array_map('basename', $preserveNames), true)) {
+                continue;
+            }
+            @unlink($path);
+            $removed[] = $name;
         }
 
         return ['built' => $built, 'removed' => $removed, 'errors' => $errors];

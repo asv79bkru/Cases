@@ -15,12 +15,15 @@ require __DIR__ . '/../vendor/autoload.php';
 use CasesBot\Api\Providers\ProviderFactory;
 use CasesBot\Bot\ChatBotController;
 use CasesBot\Bot\Commands\CasesCommand;
+use CasesBot\Bot\Commands\HelpCommand;
+use CasesBot\Bot\Commands\MainPresentationCommand;
 use CasesBot\Bot\Commands\StartCommand;
 use CasesBot\Bot\VkTeamsClient;
 use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\LlmCaseMatcher;
 use CasesBot\Catalog\TagTaxonomy;
 use CasesBot\Presentation\CaseDeckBuilder;
+use CasesBot\Presentation\MainPresentationBuilder;
 use CasesBot\Presentation\SlideCloner;
 use CasesBot\Storage\LocalPresentationsClient;
 
@@ -74,6 +77,16 @@ $caseDeckBuilder = new CaseDeckBuilder(
     $config['storage']['output'],
 );
 
+// «Основная» презентация направления для команды /main_presentation: урезанная копия исходника
+// (слайды с тегом «основной» + служебные «не кейс») в presentations-public/ под именем из
+// main_name_overrides — команда присылает прямую HTTP-ссылку, а не вложение (см. MainPresentationBuilder).
+$mainPresentationBuilder = new MainPresentationBuilder(
+    new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']),
+    $presentations,
+    $config['presentations']['public_folder_path'],
+    $config['presentations']['main_name_overrides'] ?? [],
+);
+
 $casesCommand = new CasesCommand(
     $vkTeamsClient,
     $catalog,
@@ -85,9 +98,17 @@ $casesCommand = new CasesCommand(
     $caseDeckBuilder,
 );
 
-$startCommand = new StartCommand($vkTeamsClient);
+$mainPresentationCommand = new MainPresentationCommand(
+    $vkTeamsClient,
+    $catalog,
+    $presentations,
+    $mainPresentationBuilder,
+);
 
-$controller = new ChatBotController([$startCommand, $casesCommand]);
+$startCommand = new StartCommand($vkTeamsClient);
+$helpCommand = new HelpCommand($vkTeamsClient);
+
+$controller = new ChatBotController([$startCommand, $helpCommand, $casesCommand, $mainPresentationCommand]);
 
 $self = $vkTeamsClient->selfGet();
 fwrite(STDOUT, "Подключено как @{$self['nick']} (userId {$self['userId']})\n");
