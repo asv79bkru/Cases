@@ -341,6 +341,23 @@ td .inline { display: flex; gap: 0.4rem; padding: 0; }
 }
 .row-actions label { display: inline-flex; align-items: center; gap: 0.3rem; }
 
+/* Отметка слайда для презентации из выбранных (чекбокс в заголовке карточки) */
+.select-slide-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-right: 0.6rem;
+  cursor: pointer;
+}
+.select-slide-label:hover { color: var(--text); }
+
+.selection-bar { font-weight: 600; }
+/* Ссылка-кнопка сброса выбора в панели фильтров */
+.filters a#reset-selection { color: var(--muted); }
+
 /* Узкие экраны: карточки стекаются в одну колонку, таблицы прокручиваются */
 @media (max-width: 720px) {
   .card { flex-direction: column; gap: 1rem; }

@@ -19,6 +19,11 @@ declare(strict_types=1);
  * тем же алгоритмом, что и запрос «кейсы» в чате (CasesBot\Query\QueryParser); фильтрация
  * идёт по id найденных на сервере кейсов.
  *
+ * У каждого слайда есть чекбокс «выбрать»: отмеченные слайды (хранение — localStorage,
+ * переживают перезагрузку страницы) собираются кнопкой «Создать презентацию из выбранных
+ * слайдов» в pptx-подборку (CaseDeckBuilder, файл в storage/output, раздача экшеном
+ * ?action=download). Выбор сбрасывается ссылкой в панели фильтров.
+ *
  * Изменения сохраняются сразу по действию (fetch, POST + JSON). Доступ защищён тем же
  * HTTP Basic Auth, что и загрузчик (UPLOAD_USERNAME/UPLOAD_PASSWORD в .env) — без обоих
  * значений страница отказывает в доступе.
@@ -28,7 +33,10 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use CasesBot\Catalog\CatalogRepository;
 use CasesBot\Catalog\TagTaxonomy;
+use CasesBot\Presentation\CaseDeckBuilder;
+use CasesBot\Presentation\SlideCloner;
 use CasesBot\Query\QueryParser;
+use CasesBot\Storage\LocalPresentationsClient;
 
 $envPath = __DIR__ . '/../.env';
 if (is_file($envPath)) {
@@ -142,6 +150,25 @@ if (($_GET['action'] ?? '') === 'image') {
     exit;
 }
 
+// Готовая подборка из выбранных слайдов (build_deck — файл в storage/output, само имя
+// сгенерировано на сервере; basename-фильтр — как в экшене image, без обхода путей).
+if (($_GET['action'] ?? '') === 'download') {
+    $outputDir = rtrim((string) $config['storage']['output'], '/\\');
+    $file = basename((string) ($_GET['file'] ?? ''));
+    $path = $outputDir . '/' . $file;
+
+    if ($file === '' || !is_file($path) || !str_ends_with(mb_strtolower($file), '.pptx')) {
+        http_response_code(404);
+        exit;
+    }
+
+    header('Content-Type: application/vnd.openxmlformats-officedocument.presentationml.presentation');
+    // filename* — имя с кириллицей по RFC 5987 (в storage/output имена собираются из имени исходника).
+    header("Content-Disposition: attachment; filename*=UTF-8''" . rawurlencode($file));
+    readfile($path);
+    exit;
+}
+
 // ---------------------------------------------------------------- POST-действия
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
@@ -186,6 +213,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         case 'tag_search':
             jsonOut(tagSearchState($queryParser, trim((string) ($_POST['query'] ?? ''))));
+
+        case 'build_deck':
+            $sourceFileId = (string) ($_POST['file'] ?? '');
+            $ids = json_decode((string) ($_POST['cases'] ?? '[]'), true);
+            if (!is_array($ids) || $ids === []) {
+                jsonOut(['ok' => false, 'error' => 'Не выбран ни один слайд.']);
+            }
+
+            // В подборку попадают только отмеченные галкой слайды этой презентации:
+            // чужие или уже удалённые из каталога id молча пропускаем.
+            $wanted = array_map('intval', $ids);
+            $slideNumbers = [];
+            foreach ($catalog->casesForFile($sourceFileId) as $case) {
+                if (in_array((int) $case['id'], $wanted, true)) {
+                    $slideNumbers[] = (int) $case['slide_number'];
+                }
+            }
+
+            if ($slideNumbers === []) {
+                jsonOut(['ok' => false, 'error' => 'Среди отмеченных нет слайдов этой презентации.']);
+            }
+
+            try {
+                $deckPath = (new CaseDeckBuilder(
+                    new SlideCloner($config['python']['bin'], $config['python']['slide_cloner']),
+                    new LocalPresentationsClient($config['presentations']['folder_path']),
+                    $config['storage']['output']
+                ))->build($sourceFileId, $slideNumbers);
+            } catch (\Throwable $e) {
+                jsonOut(['ok' => false, 'error' => 'Не удалось собрать презентацию: ' . $e->getMessage()]);
+            }
+
+            jsonOut([
+                'ok' => true,
+                'slides' => count($slideNumbers),
+                'file' => basename($deckPath),
+                'download' => '?action=download&file=' . rawurlencode(basename($deckPath)),
+            ]);
 
         case 'rename_tag':
             $tagId = (int) ($_POST['tag_id'] ?? 0);
@@ -327,6 +392,12 @@ function deleteTag(button) {
 <p>Каталог пуст — загрузите презентацию и запустите переиндексацию на странице загрузки.</p>
 <?php else: ?>
 
+<div class="filters selection-bar">
+  <span id="selection-count" class="selection-count">0 слайдов выбрано</span>
+  <button id="build-deck" disabled onclick="buildPresentation(this)">Создать презентацию из выбранных слайдов</button>
+  <span class="muted" id="deck-status"></span>
+</div>
+
 <div class="filters">
   <label>Презентация:
     <select onchange="location.href = '?tab=cases&file=' + encodeURIComponent(this.value)">
@@ -346,6 +417,7 @@ function deleteTag(button) {
            title="Свободный текст, поиск работает по тем же правилам, что и запрос «кейсы» в чате: словарь синонимов, составные теги («честный знак»). «И» — обязательны все теги, «ИЛИ» или запятая — достаточно любого; «И» связывает сильнее «ИЛИ».">
   </label>
   <span class="muted" id="tag-search-count"></span>
+  <a href="#" id="reset-selection" title="Снять отметки выбора со всех слайдов">сбросить выбор</a>
 </div>
 
 <div id="cards">
@@ -364,6 +436,10 @@ function deleteTag(button) {
        data-not-case="<?= $notCase ? '1' : '0' ?>" data-reviewed="<?= $reviewed ? '1' : '0' ?>">
     <div class="card-left">
       <div class="card-title">
+        <label class="select-slide-label"
+               title="Отметить слайд для презентации из выбранных (сброс — ссылкой «сбросить выбор» в фильтрах)">
+          <input type="checkbox" class="select-slide" data-id="<?= $caseId ?>"> выбрать
+        </label>
         Слайд <?= (int) $case['slide_number'] ?>
         <?php if ($reviewed): ?><span class="badge ok">размечено</span>
         <?php elseif ($suggestions !== []): ?><span class="badge warn">есть предложения</span>
@@ -595,6 +671,92 @@ function setNotCase(checkbox) {
   api('set_not_case', { case_id: card.dataset.id, value: checkbox.checked ? '1' : '0' })
     .then((result) => applyState(card, result));
 }
+
+// ---------------------------------------------------------------- выбор слайдов
+// Отмеченные галкой слайды живут в localStorage (по ключу на презентацию): перезагрузка
+// страницы и фильтры видимости выбор не трогают, сбрасывает только ссылка «сбросить выбор».
+const CURRENT_FILE = <?= json_encode($currentFile) ?>;
+const SELECT_KEY = 'casesbot-selected-cases:' + CURRENT_FILE;
+
+function selectedIds() {
+  return [...document.querySelectorAll('.card .select-slide:checked')].map((box) => Number(box.dataset.id));
+}
+
+function storeSelection(ids) {
+  try {
+    localStorage.setItem(SELECT_KEY, JSON.stringify(ids));
+  } catch {
+    // приватный режим браузера и т.п. — выбор не переживёт перезагрузку, работать не мешает
+  }
+}
+
+function slidesLabel(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return n + ' слайд выбран';
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return n + ' слайда выбрано';
+  return n + ' слайдов выбрано';
+}
+
+function syncSelectionBar() {
+  const ids = selectedIds();
+  document.getElementById('selection-count').textContent = slidesLabel(ids.length);
+  document.getElementById('build-deck').disabled = ids.length === 0;
+}
+
+function resetSelection() {
+  try {
+    localStorage.removeItem(SELECT_KEY);
+  } catch {}
+  document.querySelectorAll('.card .select-slide').forEach((box) => { box.checked = false; });
+  document.getElementById('deck-status').textContent = '';
+  syncSelectionBar();
+}
+
+function buildPresentation(button) {
+  const ids = selectedIds();
+  if (ids.length === 0) return;
+
+  const status = document.getElementById('deck-status');
+  button.disabled = true;
+  status.textContent = 'Собираю презентацию…';
+
+  api('build_deck', { file: CURRENT_FILE, cases: JSON.stringify(ids) }).then((result) => {
+    if (!result.ok) {
+      status.textContent = result.error || 'ошибка сборки';
+    } else {
+      status.textContent = 'Готово, слайдов в презентации: ' + result.slides + ' — скачивание началось.';
+      window.location.href = result.download;
+    }
+    button.disabled = false;
+    syncSelectionBar();
+  });
+}
+
+(function restoreSelection() {
+  let saved = [];
+  try {
+    saved = JSON.parse(localStorage.getItem(SELECT_KEY) || '[]');
+  } catch {}
+
+  if (Array.isArray(saved) && saved.length > 0) {
+    const savedSet = new Set(saved.map(Number));
+    document.querySelectorAll('.card .select-slide').forEach((box) => {
+      if (savedSet.has(Number(box.dataset.id))) box.checked = true;
+    });
+  }
+})();
+
+document.querySelectorAll('.card .select-slide').forEach((box) => {
+  box.addEventListener('change', () => {
+    storeSelection(selectedIds());
+    syncSelectionBar();
+  });
+});
+document.getElementById('reset-selection').addEventListener('click', (event) => {
+  event.preventDefault();
+  resetSelection();
+});
 
 document.getElementById('hide-reviewed').addEventListener('change', () => {
   document.querySelectorAll('.card').forEach(renderCard);
