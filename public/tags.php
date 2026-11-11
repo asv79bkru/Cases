@@ -394,12 +394,6 @@ function deleteTag(button) {
 <p>Каталог пуст — загрузите презентацию и запустите переиндексацию на странице загрузки.</p>
 <?php else: ?>
 
-<div class="filters selection-bar">
-  <span id="selection-count" class="selection-count">0 кейсов выбрано</span>
-  <button id="build-deck" disabled onclick="buildPresentation(this)">Создать презентацию из выбранных слайдов</button>
-  <span class="muted" id="deck-status"></span>
-</div>
-
 <div class="filters">
   <label>Презентация:
     <select onchange="location.href = '?tab=cases&file=' + encodeURIComponent(this.value)">
@@ -419,6 +413,13 @@ function deleteTag(button) {
            title="Свободный текст, поиск работает по тем же правилам, что и запрос «кейсы» в чате: словарь синонимов, составные теги («честный знак»). «И» — обязательны все теги, «ИЛИ» или запятая — достаточно любого; «И» связывает сильнее «ИЛИ».">
   </label>
   <span class="muted" id="tag-search-count"></span>
+</div>
+
+<div class="filters selection-bar">
+  <span id="selection-count" class="selection-count">0 кейсов выбрано</span>
+  <button id="build-deck" disabled onclick="buildPresentation(this)">Создать презентацию из выбранных слайдов</button>
+  <label><input type="checkbox" id="show-selected"> показать выбранные</label>
+  <span class="muted" id="deck-status"></span>
   <a href="#" id="reset-selection" title="Вернуть выбор к дефолту: «не кейсы» отмечены, кейсы сняты">сбросить выбор</a>
 </div>
 
@@ -572,7 +573,10 @@ function renderCard(card) {
   const reviewed = card.dataset.reviewed === '1';
   const reviewsHidden = (hideReviewed && hideReviewed.checked && reviewed) || (hideNotCase && hideNotCase.checked && notCase);
   const tagsMatch = matchesTagSearch(card);
-  card.style.display = (reviewsHidden || !tagsMatch) ? 'none' : '';
+  // «Показать выбранные» — панель создания презентации: остаются только слайды с галкой.
+  const showSelected = document.getElementById('show-selected');
+  const selectionHidden = showSelected && showSelected.checked && !card.querySelector('.select-slide').checked;
+  card.style.display = (reviewsHidden || !tagsMatch || selectionHidden) ? 'none' : '';
 }
 
 // Поиск по тегам: распознавание и логика И/ИЛИ — на сервере, тем же кодом, что у команды
@@ -727,6 +731,8 @@ function resetSelection() {
   storeSelection(checkedIds());
   document.getElementById('deck-status').textContent = '';
   syncSelectionBar();
+  // «Показать выбранные» может быть включён — после сброса видимость надо пересчитать.
+  document.querySelectorAll('.card').forEach(renderCard);
 }
 
 function buildPresentation(button) {
@@ -785,6 +791,9 @@ document.getElementById('hide-reviewed').addEventListener('change', () => {
   document.querySelectorAll('.card').forEach(renderCard);
 });
 document.getElementById('hide-not-case').addEventListener('change', () => {
+  document.querySelectorAll('.card').forEach(renderCard);
+});
+document.getElementById('show-selected').addEventListener('change', () => {
   document.querySelectorAll('.card').forEach(renderCard);
 });
 
