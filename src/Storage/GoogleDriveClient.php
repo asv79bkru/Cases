@@ -24,6 +24,12 @@ class GoogleDriveClient
     private const API_FILES_URL = 'https://www.googleapis.com/drive/v3/files/';
     private const EXPORT_URL = 'https://docs.google.com/presentation/d/';
 
+    // Google-IP доступен с части диапазонов и не с всех: без connect-timeout curl
+    // ждал бы ошибки TCP-соединения ~135 секунд (tcp_syn_retries=6 на Linux).
+    private const CONNECT_TIMEOUT_SEC = 15;
+    private const HTTP_TIMEOUT_SEC = 60;
+    private const DOWNLOAD_TIMEOUT_SEC = 300;
+
     private ?string $accessToken = null;
 
     /** Unix-time, когда кэшированный токен считается истёкшим (с запасом раньше реального). */
@@ -154,13 +160,35 @@ class GoogleDriveClient
         }
         $jwt = $body . '.' . $b64($signature);
 
-        $tokenResponse = $this->httpPostForm(self::TOKEN_URL, http_build_query([
-            'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-            'assertion' => $jwt,
-        ]));
+        // DNS Google отдаёт разные IP, и с части диапазонов connect не проходит:
+        // при неудаче новая попытка curl заново резолвит адрес — шанс попасть на
+        // рабочий IP. Без ретраев один неудачный DNS-ответ ронял весь прогон.
+        $attempts = 3;
+        $tokenResponse = null;
+        $lastError = 'токен не выдан';
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                $tokenResponse = $this->httpPostForm(self::TOKEN_URL, http_build_query([
+                    'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                    'assertion' => $jwt,
+                ]));
+
+                if (isset($tokenResponse['access_token'])) {
+                    break;
+                }
+
+                $lastError = 'токен не выдан: ' . json_encode($tokenResponse, JSON_UNESCAPED_UNICODE);
+            } catch (RuntimeException $e) {
+                $lastError = $e->getMessage();
+            }
+
+            if ($attempt < $attempts) {
+                sleep(5);
+            }
+        }
 
         if (!isset($tokenResponse['access_token'])) {
-            throw new RuntimeException('Drive: токен не выдан: ' . json_encode($tokenResponse, JSON_UNESCAPED_UNICODE));
+            throw new RuntimeException("Drive: за {$attempts} попыток не получен токен: {$lastError}");
         }
 
         $this->accessToken = (string) $tokenResponse['access_token'];
@@ -192,6 +220,8 @@ class GoogleDriveClient
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => ["Authorization: Bearer {$token}"],
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT_SEC,
+            CURLOPT_TIMEOUT => self::HTTP_TIMEOUT_SEC,
         ]);
         $body = (string) curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -230,6 +260,8 @@ class GoogleDriveClient
             CURLOPT_FILE => $fp,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_HTTPHEADER => ["Authorization: Bearer {$token}"],
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT_SEC,
+            CURLOPT_TIMEOUT => self::DOWNLOAD_TIMEOUT_SEC,
         ]);
         curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -256,6 +288,8 @@ class GoogleDriveClient
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $formBody,
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT_SEC,
+            CURLOPT_TIMEOUT => self::HTTP_TIMEOUT_SEC,
         ]);
         $body = (string) curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
