@@ -19,10 +19,12 @@ declare(strict_types=1);
  * тем же алгоритмом, что и запрос «кейсы» в чате (CasesBot\Query\QueryParser); фильтрация
  * идёт по id найденных на сервере кейсов.
  *
- * У каждого слайда есть чекбокс «выбрать»: отмеченные слайды (хранение — localStorage,
- * переживают перезагрузку страницы) собираются кнопкой «Создать презентацию из выбранных
- * слайдов» в pptx-подборку (CaseDeckBuilder, файл в storage/output, раздача экшеном
- * ?action=download). Выбор сбрасывается ссылкой в панели фильтров.
+ * У каждого слайда есть чекбокс «выбрать»: слайды «не кейс» (обложка, о компании, контакты)
+ * отмечены по умолчанию, эксперт отмечает кейсы. Счётчик вверху показывает число выбранных
+ * кейсов. Отмеченное (хранение — localStorage, переживает перезагрузку страницы) собирается
+ * кнопкой «Создать презентацию из выбранных слайдов» в pptx-подборку (CaseDeckBuilder, файл
+ * в storage/output, раздача экшеном ?action=download). Выбор сбрасывается ссылкой в панели
+ * фильтров — к дефолту («не кейсы» отмечены, кейсы сняты).
  *
  * Изменения сохраняются сразу по действию (fetch, POST + JSON). Доступ защищён тем же
  * HTTP Basic Auth, что и загрузчик (UPLOAD_USERNAME/UPLOAD_PASSWORD в .env) — без обоих
@@ -393,7 +395,7 @@ function deleteTag(button) {
 <?php else: ?>
 
 <div class="filters selection-bar">
-  <span id="selection-count" class="selection-count">0 слайдов выбрано</span>
+  <span id="selection-count" class="selection-count">0 кейсов выбрано</span>
   <button id="build-deck" disabled onclick="buildPresentation(this)">Создать презентацию из выбранных слайдов</button>
   <span class="muted" id="deck-status"></span>
 </div>
@@ -417,7 +419,7 @@ function deleteTag(button) {
            title="Свободный текст, поиск работает по тем же правилам, что и запрос «кейсы» в чате: словарь синонимов, составные теги («честный знак»). «И» — обязательны все теги, «ИЛИ» или запятая — достаточно любого; «И» связывает сильнее «ИЛИ».">
   </label>
   <span class="muted" id="tag-search-count"></span>
-  <a href="#" id="reset-selection" title="Снять отметки выбора со всех слайдов">сбросить выбор</a>
+  <a href="#" id="reset-selection" title="Вернуть выбор к дефолту: «не кейсы» отмечены, кейсы сняты">сбросить выбор</a>
 </div>
 
 <div id="cards">
@@ -437,8 +439,8 @@ function deleteTag(button) {
     <div class="card-left">
       <div class="card-title">
         <label class="select-slide-label"
-               title="Отметить слайд для презентации из выбранных (сброс — ссылкой «сбросить выбор» в фильтрах)">
-          <input type="checkbox" class="select-slide" data-id="<?= $caseId ?>"> выбрать
+               title="Отметить кейс для презентации из выбранных («не кейсы» отмечены по умолчанию, сброс — ссылкой «сбросить выбор» в фильтрах)">
+          <input type="checkbox" class="select-slide" data-id="<?= $caseId ?>" <?= $notCase ? 'checked' : '' ?>> выбрать
         </label>
         Слайд <?= (int) $case['slide_number'] ?>
         <?php if ($reviewed): ?><span class="badge ok">размечено</span>
@@ -675,11 +677,20 @@ function setNotCase(checkbox) {
 // ---------------------------------------------------------------- выбор слайдов
 // Отмеченные галкой слайды живут в localStorage (по ключу на презентацию): перезагрузка
 // страницы и фильтры видимости выбор не трогают, сбрасывает только ссылка «сбросить выбор».
+// Слайды «не кейс» (обложка, о компании, контакты) отмечены по умолчанию — атрибут checked
+// ещё на сервере; счётчик вверху считает только кейсы, в подборку идут все отмеченные слайды.
 const CURRENT_FILE = <?= json_encode($currentFile) ?>;
 const SELECT_KEY = 'casesbot-selected-cases:' + CURRENT_FILE;
 
-function selectedIds() {
+function checkedIds() {
   return [...document.querySelectorAll('.card .select-slide:checked')].map((box) => Number(box.dataset.id));
+}
+
+/** Отмеченные кейсы (без «не кейсов») — их считает счётчик и по ним активна кнопка сборки. */
+function selectedCaseIds() {
+  return [...document.querySelectorAll('.card .select-slide:checked')]
+    .filter((box) => box.closest('.card').dataset.notCase !== '1')
+    .map((box) => Number(box.dataset.id));
 }
 
 function storeSelection(ids) {
@@ -690,32 +701,37 @@ function storeSelection(ids) {
   }
 }
 
-function slidesLabel(n) {
+function casesLabel(n) {
   const mod10 = n % 10;
   const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return n + ' слайд выбран';
-  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return n + ' слайда выбрано';
-  return n + ' слайдов выбрано';
+  if (mod10 === 1 && mod100 !== 11) return n + ' кейс выбран';
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return n + ' кейса выбрано';
+  return n + ' кейсов выбрано';
 }
 
 function syncSelectionBar() {
-  const ids = selectedIds();
-  document.getElementById('selection-count').textContent = slidesLabel(ids.length);
-  document.getElementById('build-deck').disabled = ids.length === 0;
+  const cases = selectedCaseIds();
+  document.getElementById('selection-count').textContent = casesLabel(cases.length);
+  document.getElementById('build-deck').disabled = cases.length === 0;
+}
+
+/** Дефолтное состояние выбора: «не кейсы» отмечены, кейсы сняты. */
+function applyDefaultSelection() {
+  document.querySelectorAll('.card .select-slide').forEach((box) => {
+    box.checked = box.closest('.card').dataset.notCase === '1';
+  });
 }
 
 function resetSelection() {
-  try {
-    localStorage.removeItem(SELECT_KEY);
-  } catch {}
-  document.querySelectorAll('.card .select-slide').forEach((box) => { box.checked = false; });
+  applyDefaultSelection();
+  storeSelection(checkedIds());
   document.getElementById('deck-status').textContent = '';
   syncSelectionBar();
 }
 
 function buildPresentation(button) {
-  const ids = selectedIds();
-  if (ids.length === 0) return;
+  const ids = checkedIds();
+  if (selectedCaseIds().length === 0) return;
 
   const status = document.getElementById('deck-status');
   button.disabled = true;
@@ -734,22 +750,29 @@ function buildPresentation(button) {
 }
 
 (function restoreSelection() {
-  let saved = [];
+  let raw = null;
   try {
-    saved = JSON.parse(localStorage.getItem(SELECT_KEY) || '[]');
+    raw = localStorage.getItem(SELECT_KEY);
   } catch {}
 
-  if (Array.isArray(saved) && saved.length > 0) {
-    const savedSet = new Set(saved.map(Number));
-    document.querySelectorAll('.card .select-slide').forEach((box) => {
-      if (savedSet.has(Number(box.dataset.id))) box.checked = true;
-    });
+  // Без сохранённого выбора остаётся серверный дефолт: «не кейсы» уже отмечены атрибутом checked.
+  if (raw === null) return;
+
+  let saved;
+  try {
+    saved = JSON.parse(raw);
+  } catch {
+    return;
   }
+  const savedSet = new Set((Array.isArray(saved) ? saved : []).map(Number));
+  document.querySelectorAll('.card .select-slide').forEach((box) => {
+    box.checked = savedSet.has(Number(box.dataset.id));
+  });
 })();
 
 document.querySelectorAll('.card .select-slide').forEach((box) => {
   box.addEventListener('change', () => {
-    storeSelection(selectedIds());
+    storeSelection(checkedIds());
     syncSelectionBar();
   });
 });
