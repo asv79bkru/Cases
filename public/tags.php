@@ -397,6 +397,8 @@ function deleteTag(button) {
 <div class="filters selection-bar">
   <span id="selection-count" class="selection-count">0 кейсов выбрано</span>
   <button id="build-deck" disabled onclick="buildPresentation(this)">Создать презентацию из выбранных слайдов</button>
+  <label><input type="checkbox" id="select-all"
+         title="Отметить все слайды, видимые в текущей выдаче (по фильтрам и поиску по тегам)"> выбрать все</label>
   <label><input type="checkbox" id="show-selected"> показать выбранные</label>
   <span class="muted" id="deck-status"></span>
   <a href="#" id="reset-selection" title="Вернуть выбор к дефолту: «не кейсы» отмечены, кейсы сняты">сбросить выбор</a>
@@ -785,6 +787,20 @@ document.querySelectorAll('.card .select-slide').forEach((box) => {
 document.getElementById('reset-selection').addEventListener('click', (event) => {
   event.preventDefault();
   resetSelection();
+});
+
+// «Выбрать все» — отмечает/снимает все слайды, видимые в текущей выдаче (по фильтрам
+// и поиску по тегам). Скрытые карточки не трогаем, чтобы выбор не выходил за рамки выдачи.
+document.getElementById('select-all').addEventListener('change', () => {
+  const selectAll = document.getElementById('select-all').checked;
+  document.querySelectorAll('.card').forEach((card) => {
+    if (card.style.display === 'none') return;
+    card.querySelector('.select-slide').checked = selectAll;
+  });
+  storeSelection(checkedIds());
+  syncSelectionBar();
+  // «Показать выбранные» может быть включён — после смены выбора видимость пересчитываем.
+  document.querySelectorAll('.card').forEach(renderCard);
 });
 
 document.getElementById('hide-reviewed').addEventListener('change', () => {
