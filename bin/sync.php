@@ -18,6 +18,10 @@ declare(strict_types=1);
  * Флаги: --skip-reindex (не трогать каталог, только скачать + пересобрать публичные копии),
  * --force (скачать и пересобрать, даже если Drive-версия не менялась).
  *
+ * После успешного скачивания каждый новый pptx выгружается в ownCloud (OWNCLOUD_* в .env,
+ * OwnCloudClient, WebDAV): файл кладётся в OWNCLOUD_PPTX_DIR под тем же именем, прежний
+ * заменяется. Если учётка не настроена — шаг пропускается, синхронизация не падает.
+ *
  * Эксперт при этом не делает ничего: поменял презентацию в Google Slides — в ближайшую ночь
  * (окно 20:00–07:00 МСК) она сама придёт на сервер, каталог и копии обновятся.
  */
@@ -28,6 +32,7 @@ use CasesBot\Catalog\Reindexer;
 use CasesBot\Presentation\PublicCopyBuilder;
 use CasesBot\Presentation\SlideCloner;
 use CasesBot\Storage\GoogleDriveClient;
+use CasesBot\Storage\OwnCloudClient;
 
 $envPath = __DIR__ . '/../.env';
 if (is_file($envPath)) {
@@ -146,6 +151,35 @@ foreach ($presentationIds as $fileId) {
     $changed[] = $name;
     fwrite(STDOUT, sprintf("sync: скачали «%s» (%.1f МБ, Drive-версия от %s).\n",
         $name, $bytes / 1048576, $info['modifiedTime']));
+}
+
+// Выгружаем скачанные презентации в ownCloud, заменяя прежние файлы (WebDAV PUT).
+// До переиндексации: каталог и публичные копии — для бота, выгрузка — независимый шаг;
+// ошибка выгрузки фиксируется в $errors, но не мешает обновить каталог.
+if ($changed !== []) {
+    $owncloud = new OwnCloudClient(
+        $config['owncloud']['base_url'],
+        $config['owncloud']['username'],
+        $config['owncloud']['password']
+    );
+
+    if (!$owncloud->isConfigured()) {
+        fwrite(STDOUT, "sync: OWNCLOUD_* в .env не заданы — выгрузка в ownCloud пропущена.\n");
+    } else {
+        foreach ($changed as $name) {
+            try {
+                $bytes = $owncloud->putFile(
+                    $sourcesDir . '/' . $name,
+                    $config['owncloud']['directory'] . '/' . $name
+                );
+                fwrite(STDOUT, sprintf("sync: «%s» выгружена в ownCloud (%s, %.1f МБ).\n",
+                    $name, $config['owncloud']['directory'], $bytes / 1048576));
+            } catch (Throwable $e) {
+                // В тексте исключения уже есть префикс «ownCloud: …» — не дублируем его.
+                $errors[] = $e->getMessage();
+            }
+        }
+    }
 }
 
 // Сохраняем state только при успешном скачивании хотя бы одного файла — иначе

@@ -86,6 +86,17 @@ return [
             'session_id' => $env('OPENCODEZEN_SESSION_ID', 'casesbot'),
         ],
     ],
+    // Выгрузка презентаций в ownCloud (OwnCloudClient, WebDAV): после скачивания из
+    // Drive bin/sync.php кладёт pptx в каталог OWNCLOUD_PPTX_DIR, заменяя прежний файл.
+    // Без логина/пароля в .env выгрузка просто пропускается (fail silent, sync не падает).
+    'owncloud' => [
+        // Штатный WebDAV-корень ownCloud — без логина в пути (вариант нового стиля
+        // remote.php/dav/files/<логин> на cloud.simbirsoft1.com не работает).
+        'base_url' => $env('OWNCLOUD_BASE_URL', 'https://cloud.simbirsoft1.com/remote.php/webdav'),
+        'username' => $env('OWNCLOUD_USERNAME'),
+        'password' => $env('OWNCLOUD_PASSWORD'),
+        'directory' => $env('OWNCLOUD_PPTX_DIR', 'Presales BA/Презентации БА'),
+    ],
     'storage' => [
         'incoming' => __DIR__ . '/../storage/incoming',
         'output' => __DIR__ . '/../storage/output',

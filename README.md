@@ -86,6 +86,22 @@ Google Slides — через экспорт `.../export/pptx`, загружен�
 «парадные» копии обновляются без его участия. Ручной запуск: `php bin/sync.php`, флаги
 `--skip-reindex` и `--force`.
 
+## Выгрузка презентаций в ownCloud
+
+После скачивания из Drive `bin/sync.php` выгружает каждый новый pptx в ownCloud по WebDAV
+(`src/Storage/OwnCloudClient.php`): файл кладётся в `OWNCLOUD_PPTX_DIR` (по умолчанию
+`Presales BA/Презентации БА` на cloud.simbirsoft1.com) под именем из Drive, прежний файл с тем
+же именем заменяется. Учётные данные — `OWNCLOUD_USERNAME`/`OWNCLOUD_PASSWORD` в `.env`
+(пароль хранится только на сервере, в git не попадает); без них шаг пропускается, sync не падает.
+
+WebDAV-корень — штатный для ownCloud `https://cloud.simbirsoft1.com/remote.php/webdav`, без
+логина в пути; при необходимости переопределяется `OWNCLOUD_BASE_URL` (вариант нового стиля
+`remote.php/dav/files/<логин>` на этом сервере не работает).
+
+Ручной запуск (не дожидаясь ночного окна): `php bin/upload-owncloud.php` — выгрузить все pptx
+из `presentations/`; `php bin/upload-owncloud.php --check` — только проверить соединение;
+`php bin/upload-owncloud.php файл.pptx…` — выгрузить перечисленные.
+
 ## Веб-интерфейс: загрузка и разметка (:8081)
 
 Две страницы рядом, обе под HTTP Basic Auth (`UPLOAD_USERNAME`/`UPLOAD_PASSWORD` в `.env`) —
