@@ -419,9 +419,19 @@ function deleteTag(button) {
   </label>
   <label><input type="checkbox" id="hide-reviewed"> скрыть размеченные</label>
   <label><input type="checkbox" id="hide-not-case" checked> скрыть «не кейсы»</label>
-  <label>Поиск по тегам:
-    <input type="text" id="tag-search" list="known-tags" placeholder="ритейл И 1с, маркировка"
-           title="Свободный текст, поиск работает по тем же правилам, что и запрос «кейсы» в чате: словарь синонимов, составные теги («честный знак»). «И» — обязательны все теги, «ИЛИ» или запятая — достаточно любого; «И» связывает сильнее «ИЛИ».">
+  <label for="tag-select-input">Поиск по тегам:</label>
+  <span class="tag-select" id="tag-select">
+    <span class="tag-select__chips" id="tag-select-chips"></span>
+    <input type="text" class="tag-select__input" id="tag-select-input"
+           placeholder="выберите или введите тег…"
+           title="Начните вводить, чтобы отфильтровать список, либо впишите тег вручную и нажмите Enter. Полный список тегов доступен при каждом открытии.">
+    <span class="tag-select__panel" id="tag-select-panel"></span>
+  </span>
+  <label>сочетание:
+    <select id="tag-select-mode" title="Как сочетать выбранные теги">
+      <option value="or">любой (ИЛИ)</option>
+      <option value="and">все (И)</option>
+    </select>
   </label>
   <span class="muted" id="tag-search-count"></span>
 </div>
@@ -819,15 +829,106 @@ document.getElementById('show-selected').addEventListener('change', () => {
   document.querySelectorAll('.card').forEach(renderCard);
 });
 
-// Поиск по тегам: запрос уходит на сервер с небольшой паузой после остановки ввода.
-let tagSearchTimer = null;
-document.getElementById('tag-search').addEventListener('input', () => {
-  clearTimeout(tagSearchTimer);
-  tagSearchTimer = setTimeout(runTagSearch, 250);
+// Поиск по тегам: мультиселект с чипами. Полный список тегов доступен при каждом
+// открытии — фильтр списка зависит только от набранного текста, а не от выбранных чипов.
+// Выбранные теги собираются в строку запроса и уходят в tag_search (QueryParser на сервере),
+// сочетание «любой (ИЛИ) / все (И)» задаётся глобальным переключателем.
+const tagSelect = document.getElementById('tag-select');
+const tagSelectInput = document.getElementById('tag-select-input');
+const tagSelectChips = document.getElementById('tag-select-chips');
+const tagSelectPanel = document.getElementById('tag-select-panel');
+const tagSelectMode = document.getElementById('tag-select-mode');
+
+let SELECTED_TAGS = [];
+
+function tagSelectQuery() {
+  return SELECTED_TAGS.join(tagSelectMode.value === 'and' ? ' И ' : ', ');
+}
+
+function renderTagChips() {
+  tagSelectChips.innerHTML = '';
+  for (const tag of SELECTED_TAGS) {
+    const chip = document.createElement('span');
+    chip.className = 'chip approved tag-select__chip';
+    chip.append(tag);
+    const remove = document.createElement('button');
+    remove.textContent = '×';
+    remove.title = 'убрать тег';
+    remove.onclick = () => {
+      SELECTED_TAGS = SELECTED_TAGS.filter((t) => t !== tag);
+      renderTagChips();
+      renderTagPanel();
+      runTagSearch();
+    };
+    chip.append(remove);
+    tagSelectChips.append(chip);
+  }
+}
+
+function renderTagPanel() {
+  const needle = tagSelectInput.value.trim().toLowerCase();
+  tagSelectPanel.innerHTML = '';
+  for (const tag of KNOWN_TAGS) {
+    if (needle !== '' && !tag.toLowerCase().includes(needle)) continue;
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.className = 'tag-select__option';
+    if (SELECTED_TAGS.includes(tag)) option.classList.add('selected');
+    const name = document.createElement('span');
+    name.textContent = tag;
+    const mark = document.createElement('span');
+    mark.className = 'tag-select__mark';
+    mark.textContent = SELECTED_TAGS.includes(tag) ? '✓' : '';
+    option.append(name, mark);
+    option.onclick = () => addTagToSelect(tag);
+    tagSelectPanel.append(option);
+  }
+  // Пустую панель не показываем (нет совпадений — нечего выбирать).
+  tagSelectPanel.classList.toggle('open', tagSelectPanel.childElementCount > 0);
+}
+
+function addTagToSelect(tag) {
+  if (!SELECTED_TAGS.includes(tag)) {
+    SELECTED_TAGS.push(tag);
+    renderTagChips();
+    runTagSearch();
+  }
+  tagSelectInput.value = '';
+  renderTagPanel();
+  tagSelectInput.focus();
+}
+
+function closeTagPanel() {
+  tagSelectPanel.classList.remove('open');
+}
+
+tagSelectInput.addEventListener('focus', renderTagPanel);
+// Клик по полю/контейнеру снова открывает панель, даже когда поле уже в фокусе
+// (повторного focus при этом не бывает) — список тегов доступен всегда.
+tagSelect.addEventListener('click', renderTagPanel);
+tagSelectInput.addEventListener('input', renderTagPanel);
+tagSelectInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    const value = tagSelectInput.value.trim();
+    if (value !== '') addTagToSelect(value);
+  } else if (event.key === 'Escape') {
+    closeTagPanel();
+    tagSelectInput.blur();
+  }
+});
+// mousedown, а не click: клик по варианту перестраивает панель и удаляет кнопку из DOM
+// до всплытия click — contains() для оторванного элемента даёт ложь, и панель закрывалась
+// бы сразу после каждого выбора. На mousedown кнопка ещё в DOM, панель остаётся открытой.
+document.addEventListener('mousedown', (event) => {
+  if (!tagSelect.contains(event.target)) closeTagPanel();
+});
+tagSelectMode.addEventListener('change', () => {
+  if (SELECTED_TAGS.length > 0) runTagSearch();
 });
 
 function runTagSearch() {
-  const query = document.getElementById('tag-search').value.trim();
+  const query = tagSelectQuery();
   const count = document.getElementById('tag-search-count');
 
   if (query === '') {

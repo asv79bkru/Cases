@@ -230,8 +230,65 @@ td .inline { display: flex; gap: 0.4rem; padding: 0; }
   font-size: 0.9rem;
 }
 .filters label { display: inline-flex; align-items: center; gap: 0.4rem; margin: 0; }
-/* Поле поиска по тегам: свободный текст вида «ритейл И 1с, маркировка» — ширина в запас. */
-.filters input#tag-search { width: 22rem; }
+
+/* Поиск по тегам: мультиселект с чипами и выпадающим списком полного набора тегов. */
+.tag-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.35rem;
+  min-width: 22rem;
+  max-width: 100%;
+  padding: 0.3rem 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: text;
+}
+.tag-select__chips { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+.tag-select__chip { font-size: 0.85rem; }
+.tag-select__input {
+  flex: 1 1 10rem;
+  min-width: 10rem;
+  border: none;
+  outline: none;
+  font: inherit;
+  padding: 0.15rem 0.2rem;
+  background: transparent;
+}
+.tag-select__panel {
+  display: none;
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 30;
+  min-width: 100%;
+  max-height: 18rem;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.tag-select__panel.open { display: block; }
+.tag-select__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.tag-select__option:hover { background: var(--bg); }
+.tag-select__option.selected { background: var(--ok-bg); }
+.tag-select__mark { color: var(--ok-text); }
 
 /* Карточка слайда */
 .card {
