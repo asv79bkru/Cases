@@ -21,7 +21,8 @@ declare(strict_types=1);
  *
  * У каждого слайда есть чекбокс «выбрать»: слайды «не кейс» (обложка, о компании, контакты)
  * отмечены по умолчанию, эксперт отмечает кейсы. Счётчик вверху показывает число выбранных
- * кейсов. Отмеченное (хранение — localStorage, переживает перезагрузку страницы) собирается
+ * слайдов (всех отмеченных, включая «не кейсы»; кнопка сборки активна, когда выбран хотя бы
+ * один кейс). Отмеченное (хранение — localStorage, переживает перезагрузку страницы) собирается
  * кнопкой «Создать презентацию из выбранных слайдов» в pptx-подборку (CaseDeckBuilder, файл
  * в storage/output, раздача экшеном ?action=download). Выбор сбрасывается ссылкой в панели
  * фильтров — к дефолту («не кейсы» отмечены, кейсы сняты).
@@ -395,7 +396,7 @@ function deleteTag(button) {
 <?php else: ?>
 
 <div class="filters selection-bar">
-  <span id="selection-count" class="selection-count">0 кейсов выбрано</span>
+  <span id="selection-count" class="selection-count">0 слайдов выбрано</span>
   <button id="build-deck" disabled onclick="buildPresentation(this)">Создать презентацию из выбранных слайдов</button>
   <label><input type="checkbox" id="select-all"
          title="Отметить все слайды, видимые в текущей выдаче (по фильтрам и поиску по тегам)"> выбрать все</label>
@@ -684,7 +685,8 @@ function setNotCase(checkbox) {
 // Отмеченные галкой слайды живут в localStorage (по ключу на презентацию): перезагрузка
 // страницы и фильтры видимости выбор не трогают, сбрасывает только ссылка «сбросить выбор».
 // Слайды «не кейс» (обложка, о компании, контакты) отмечены по умолчанию — атрибут checked
-// ещё на сервере; счётчик вверху считает только кейсы, в подборку идут все отмеченные слайды.
+// ещё на сервере; счётчик вверху считает все отмеченные слайды (кейсы + «не кейсы»),
+// в подборку идут все отмеченные слайды.
 const CURRENT_FILE = <?= json_encode($currentFile) ?>;
 const SELECT_KEY = 'casesbot-selected-cases:' + CURRENT_FILE;
 
@@ -692,7 +694,7 @@ function checkedIds() {
   return [...document.querySelectorAll('.card .select-slide:checked')].map((box) => Number(box.dataset.id));
 }
 
-/** Отмеченные кейсы (без «не кейсов») — их считает счётчик и по ним активна кнопка сборки. */
+/** Отмеченные кейсы (без «не кейсов») — по ним активна кнопка сборки. */
 function selectedCaseIds() {
   return [...document.querySelectorAll('.card .select-slide:checked')]
     .filter((box) => box.closest('.card').dataset.notCase !== '1')
@@ -707,18 +709,18 @@ function storeSelection(ids) {
   }
 }
 
-function casesLabel(n) {
+function slidesLabel(n) {
   const mod10 = n % 10;
   const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return n + ' кейс выбран';
-  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return n + ' кейса выбрано';
-  return n + ' кейсов выбрано';
+  if (mod10 === 1 && mod100 !== 11) return n + ' слайд выбран';
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return n + ' слайда выбрано';
+  return n + ' слайдов выбрано';
 }
 
 function syncSelectionBar() {
-  const cases = selectedCaseIds();
-  document.getElementById('selection-count').textContent = casesLabel(cases.length);
-  document.getElementById('build-deck').disabled = cases.length === 0;
+  const slides = checkedIds();
+  document.getElementById('selection-count').textContent = slidesLabel(slides.length);
+  document.getElementById('build-deck').disabled = selectedCaseIds().length === 0;
 }
 
 /** Дефолтное состояние выбора: «не кейсы» отмечены, кейсы сняты. */
@@ -777,6 +779,10 @@ function buildPresentation(button) {
     box.checked = savedSet.has(Number(box.dataset.id));
   });
 })();
+
+// Счётчик выбора вверху должен отражать фактическое состояние сразу после загрузки —
+// и серверный дефолт («не кейсы» отмечены), и восстановленный из localStorage выбор.
+syncSelectionBar();
 
 document.querySelectorAll('.card .select-slide').forEach((box) => {
   box.addEventListener('change', () => {
